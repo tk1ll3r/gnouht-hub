@@ -1,4 +1,4 @@
-# Threat model (v1, milestones M1–M5)
+# Threat model (v1, milestones M1–M6)
 
 ## Assets
 
@@ -57,7 +57,18 @@ owner's PC); friends' data (M4); AI prompts and answers (M5).
 | Spoofing / tampering | A rogue device answering someone else's job | Claims only return the device owner's jobs (SKIP LOCKED); only the claiming device may complete, once; output length-capped and stripped of control characters | pgTAP `060`, agent e2e |
 | Info disclosure | Stored excerpts outliving their use | Prompts are wiped when a job finishes, expires or is cancelled; jobs are deleted after 30 days; AI is off until the user consents (audited) | pgTAP `060` |
 | DoS | Huge folders or documents | 1000 files per folder, 30 folders, 4 MB text / 30 MB binary files, 120k characters and 400 chunks per document, 512 KB request bodies, capped `.pptx` decompression | Vitest, code review |
+| Spoofing | Stolen magic link or inbox access | Optional TOTP second factor; once enrolled, the database refuses first-factor sessions on every table and callable function (restrictive RLS), and the proxy, `requireUser` and API routes send them to the code step | pgTAP `070`, smoke test |
+| Spoofing | Guessing TOTP codes straight against Supabase Auth, which has no per-account limit | Only sessions marked by the hub after its rate-limited form (8 tries / 10 min) count as two-step; an aal2 session obtained directly from Auth reads nothing | pgTAP `070`, smoke test, `docs/pentest.md` F1 |
+| Spoofing | A stolen or forgotten session after "sign out everywhere" | The JWT's session must still exist in `auth.sessions`; revoked sessions lose access at once, not when the token expires | pgTAP `070`, smoke test, `docs/pentest.md` F2 |
+| DoS / brute force | Scripted sign-in, search, AI or write floods | Database-backed fixed-window limits per user (and per IP and hashed address for sign-in); see `docs/pentest.md` | smoke test, code review |
+| Info disclosure | Account data on request / right to erasure | Export returns only the caller's own rows under RLS (no secrets); deletion needs the typed address, revokes Google grants, hands owned groups to a member, then cascades | smoke test, pgTAP `070` |
+| Elevation | Regressions in headers or CSRF protection | ZAP baseline in CI with triaged rules; Server Actions keep Next.js' Origin check | CI `e2e`, `docs/pentest.md` |
 
-## Open items (later milestones)
+## Residual risks
 
-Rate limiting of user actions, MFA enforcement, ZAP scan and a manual pentest (M6).
+- TOTP is optional. Accounts without it rest on the security of the email inbox.
+- The per-IP sign-in limit relies on the platform setting `X-Forwarded-For` (Vercel does). The per-address
+  limit applies regardless.
+- The rate limiter fails open if its database call errors (see `docs/pentest.md` F4).
+- Supabase Auth ends a user's other aal1 sessions whenever a TOTP code is verified. This is expected, but
+  it can look like a sign-out on another device.

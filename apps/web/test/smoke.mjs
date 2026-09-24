@@ -2,7 +2,7 @@
 // End-to-end smoke test against a running `next dev` + local Supabase:
 // closed registration, magic-link sign-in via Mailpit, authenticated pages, cron auth.
 // Usage: node apps/web/test/smoke.mjs   (reads apps/web/.env.local; prints no secrets)
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,6 +25,19 @@ const check = (ok, label, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
   if (!ok) failures++;
 };
+
+/** RFC 6238 TOTP (SHA-1, 30 s, 6 digits) from a base32 secret, like an authenticator app. */
+function totp(secret, at = Date.now()) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const c of secret.replace(/=+$/, "").toUpperCase()) bits += alphabet.indexOf(c).toString(2).padStart(5, "0");
+  const key = Buffer.from(bits.match(/.{8}/g).map((b) => parseInt(b, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(at / 30_000)));
+  const h = createHmac("sha1", key).update(counter).digest();
+  const offset = h[h.length - 1] & 0xf;
+  return String((h.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).padStart(6, "0");
+}
 
 const anon = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: false } });
 const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY, { auth: { persistSession: false } });
@@ -262,6 +275,121 @@ check(inviteOther.includes("but this invite is for") && !inviteOther.includes("J
 const inviteBogus = await (await fetch(`${APP}/invite/${"x".repeat(32)}`)).text();
 check(inviteBogus.includes("no longer valid"), "unknown invite tokens are rejected");
 await admin.from("groups").delete().in("id", [group.id, foreignGroup.id]);
+
+// 8. Two-step sign-in, checked through the real Auth + PostgREST and the hub's own form (submitted
+// without JavaScript, as a browser would).
+{
+  const session = async () => {
+    const client = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { data: link } = await admin.auth.admin.generateLink({ type: "magiclink", email: friendEmail });
+    await client.auth.verifyOtp({ type: "magiclink", token_hash: link.properties.hashed_token });
+    return client;
+  };
+  // A tiny cookie jar per simulated browser.
+  const browser = () => {
+    const jar = new Map();
+    const header = () => [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+    const absorb = (res) => {
+      for (const c of res.headers.getSetCookie()) {
+        const [pair] = c.split(";");
+        const i = pair.indexOf("=");
+        if (/max-age=0/i.test(c) || i === pair.length - 1) jar.delete(pair.slice(0, i));
+        else jar.set(pair.slice(0, i), pair.slice(i + 1));
+      }
+      return res;
+    };
+    const get = async (path) => absorb(await fetch(`${APP}${path}`, { headers: { cookie: header() }, redirect: "manual" }));
+    const signIn = async () => {
+      const { data: link } = await admin.auth.admin.generateLink({ type: "magiclink", email: friendEmail });
+      await get(`/auth/confirm?token_hash=${link.properties.hashed_token}&type=magiclink`);
+    };
+    const unescapeHtml = (v) => v.replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+    // Submits the code form the way a browser without JavaScript does (React's hidden action fields included).
+    const submitCode = async (code, next = "/projects") => {
+      const path = `/login/mfa?next=${encodeURIComponent(next)}`;
+      const html = await (await get(path)).text();
+      const form = [...html.matchAll(/<form[\s\S]*?<\/form>/g)].map((m) => m[0]).find((f) => f.includes('name="code"'));
+      if (!form) return { status: 0, location: null, html: "" };
+      const body = new FormData();
+      for (const [input] of form.matchAll(/<input[^>]*type="hidden"[^>]*>/g)) {
+        const name = /name="([^"]*)"/.exec(input)?.[1];
+        if (name) body.append(unescapeHtml(name), unescapeHtml(/value="([^"]*)"/.exec(input)?.[1] ?? ""));
+      }
+      body.set("code", code);
+      const res = absorb(await fetch(`${APP}${path}`, { method: "POST", body, headers: { cookie: header(), origin: APP }, redirect: "manual" }));
+      return { status: res.status, location: res.headers.get("location"), html: await res.text() };
+    };
+    return { jar, get, signIn, submitCode };
+  };
+
+  // Reruns within the limiter windows start clean.
+  await admin.from("rate_limits").delete().or(`bucket.eq.mfa:${friendId},bucket.like.export:*`);
+  await admin.from("tasks").insert({ user_id: friendId, title: "Friend MFA canary" });
+  const first = await session();
+  const { data: enrolled } = await first.auth.mfa.enroll({ factorType: "totp" });
+  const code = (offset = 0) => totp(enrolled.totp.secret, Date.now() + offset);
+  const { error: verifyError } = await first.auth.mfa.challengeAndVerify({ factorId: enrolled.id, code: code() });
+  check(!verifyError, "a TOTP factor can be enrolled and verified", verifyError?.message);
+  try {
+    const direct = (await first.from("tasks").select("title").eq("title", "Friend MFA canary")).data ?? [];
+    check(direct.length === 0, "an aal2 session whose code skipped the hub's rate-limited form reads nothing");
+    const second = await session();
+    check(((await second.from("tasks").select("title")).data ?? []).length === 0, "a first-factor (aal1) session of an enrolled user reads nothing, even through the API");
+
+    const laptop = browser();
+    await laptop.signIn();
+    const gated = await laptop.get("/today");
+    check(gated.status === 307 && gated.headers.get("location")?.includes("/login/mfa"), "pages send an enrolled user to the code step", `${gated.status} ${gated.headers.get("location")}`);
+    const wrong = await laptop.submitCode(code() === "123456" ? "654321" : "123456");
+    check(wrong.status === 200 && wrong.html.includes("not right"), "the code form rejects a wrong code");
+    const right = await laptop.submitCode(code());
+    check(right.status === 303 && right.location === "/projects", "the right code finishes sign-in and returns to the requested page", `${right.status} ${right.location}`);
+    const exportAfter = await laptop.get("/api/me/export");
+    const rows = await exportAfter.json().catch(() => ({}));
+    check(exportAfter.status === 200 && rows.tasks?.some((t) => t.title === "Friend MFA canary"), "the session confirmed through the hub reads the user's data");
+
+    const guesser = browser();
+    await guesser.signIn();
+    let limited = false;
+    for (let i = 0; i < 8 && !limited; i++) limited = (await guesser.submitCode("000000")).html.includes("Too many attempts");
+    check(limited, "the code form allows at most 8 tries per 10 minutes per account");
+
+    // The confirmed browser's own access token, used straight against the API.
+    const stored = [...laptop.jar].filter(([k]) => /^sb-.*-auth-token(\.\d+)?$/.test(k)).sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v).join("");
+    const accessToken = JSON.parse(Buffer.from(stored.replace(/^base64-/, ""), "base64url").toString()).access_token;
+    const tokenClient = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    });
+    const canary = () => tokenClient.from("tasks").select("title").eq("title", "Friend MFA canary");
+    check(((await canary()).data ?? []).length === 1, "the confirmed session's token reads the data through the API");
+
+    // "Sign out everywhere" from another device. (A fresh session: Auth already ended the older aal1
+    // ones when the code was verified.)
+    const phone = await session();
+    const { error: signOutError } = await phone.auth.signOut({ scope: "global" });
+    const ended = await laptop.get("/today");
+    const cleared = ended.headers.get("location") === "/auth/ended" ? await laptop.get("/auth/ended") : null;
+    check(!signOutError && cleared?.headers.get("location")?.endsWith("/login?ended=1") && ![...laptop.jar.keys()].some((k) => k.startsWith("sb-")),
+      "after sign-out everywhere another browser loses access at once and its cookies are cleared", `${ended.status} ${ended.headers.get("location")} ${signOutError?.message ?? ""}`);
+    check(((await canary()).data ?? []).length === 0, "and its unexpired access token reads nothing through the API");
+  } finally {
+    await admin.auth.admin.mfa.deleteFactor({ id: enrolled.id, userId: friendId });
+    await admin.from("tasks").delete().eq("user_id", friendId).eq("title", "Friend MFA canary");
+    await admin.from("rate_limits").delete().eq("bucket", `mfa:${friendId}`);
+  }
+}
+
+// Account endpoints
+check((await fetch(`${APP}/api/me/export`)).status === 401, "data export needs a session");
+const exportRes = await get("/api/me/export");
+const exported = await exportRes.json().catch(() => ({}));
+check(exportRes.status === 200 && Array.isArray(exported.tasks) && exported.tasks.some((t) => t.title === "Lab 3: AES modes") && !JSON.stringify(exported).includes("secret_ciphertext"),
+  "data export returns the owner's rows and no secrets");
+const securityTxt = await fetch(`${APP}/.well-known/security.txt`);
+check(securityTxt.status === 200 && (await securityTxt.text()).includes("Contact: mailto:"), "security.txt is published");
+const mfaPage = await fetch(`${APP}/login/mfa`, { redirect: "manual" });
+check(mfaPage.status === 307 || mfaPage.status === 303 || mfaPage.headers.get("location")?.includes("/login"), "the MFA step needs a first-factor session", String(mfaPage.status));
 
 // 7. Protected routes and cron auth
 const anonToday = await fetch(`${APP}/today`, { redirect: "manual" });

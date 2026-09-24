@@ -20,6 +20,8 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const next = safeNextPath(typeof params.next === "string" ? params.next : null);
   const errorKey = typeof params.error === "string" ? params.error : null;
   const error = errorKey ? (ERRORS[errorKey] ?? ERRORS.link) : null;
+  const deleted = params.deleted === "1";
+  const ended = params.ended === "1";
 
   return (
     <Card className="w-full max-w-sm p-7">
@@ -28,6 +30,16 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         <p className="text-[14px] text-muted">Your semester in one notebook: classes, deadlines, projects and study groups.</p>
       </div>
 
+      {deleted ? (
+        <p role="status" className="mb-4 rounded-lg bg-ok-soft px-3 py-2 text-[13px] text-ok">
+          Your account and everything in it were deleted.
+        </p>
+      ) : null}
+      {ended ? (
+        <p role="status" className="mb-4 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn">
+          This browser was signed out, because the session was ended (for example with “Sign out everywhere”). Sign in again.
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="mb-4 rounded-lg bg-danger-soft px-3 py-2 text-[13px] text-danger">
           {error}

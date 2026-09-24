@@ -63,6 +63,13 @@ const AUDIT_LABELS: Record<string, string> = {
   "group.remove_member": "Removed a group member",
   "group.share_busy_on": "Started sharing free/busy with a group",
   "group.share_busy_off": "Stopped sharing free/busy with a group",
+  "auth.mfa_verify": "Passed two-step sign-in",
+  "auth.mfa_failed": "Entered a wrong two-step code",
+  "auth.sign_out_all": "Signed out everywhere",
+  "mfa.enable": "Turned on two-step sign-in",
+  "mfa.disable": "Turned off two-step sign-in",
+  "account.export": "Downloaded account data",
+  "account.delete": "Deleted the account",
   "ai.enable": "Turned on the AI assistant",
   "ai.disable": "Turned off the AI assistant",
 };

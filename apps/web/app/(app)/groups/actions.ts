@@ -7,6 +7,7 @@ import { audit } from "@/lib/audit";
 import { requireUser } from "@/lib/auth";
 import { inviteEmail, sendEmail } from "@/lib/email";
 import { env } from "@/lib/env";
+import { allow } from "@/lib/rate-limit";
 import type { ActionState } from "@/lib/utils";
 import { fieldErrors, formObject, uuid } from "@/lib/validation";
 
@@ -27,7 +28,8 @@ const inviteSchema = z.object({
 });
 
 export async function createGroup(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase } = await requireUser();
+  const { user, supabase } = await requireUser();
+  if (!(await allow(`group:${user.id}`, 10, 3600))) return { message: "Too many new groups in an hour." };
   const parsed = groupSchema.safeParse(formObject(formData));
   if (!parsed.success) return { errors: fieldErrors(parsed.error) };
   const { data, error } = await supabase.rpc("create_group", { p_name: parsed.data.name, p_description: parsed.data.description ?? undefined, p_color: parsed.data.color });
@@ -130,6 +132,7 @@ export async function setShareBusy(formData: FormData): Promise<void> {
 
 export async function shareProject(formData: FormData): Promise<void> {
   const { user, supabase } = await requireUser();
+  if (!(await allow(`share:${user.id}`, 30, 600))) return;
   const groupId = uuid.safeParse(formData.get("group_id"));
   const projectId = uuid.safeParse(formData.get("project_id"));
   if (!groupId.success || !projectId.success) return;

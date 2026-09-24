@@ -4,11 +4,13 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { audit } from "@/lib/audit";
 import { requireUser } from "@/lib/auth";
+import { allow } from "@/lib/rate-limit";
 import type { ActionState } from "@/lib/utils";
 import { fieldErrors, formObject, projectSchema, uuid } from "@/lib/validation";
 
 export async function saveProject(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase } = await requireUser();
+  const { user, supabase } = await requireUser();
+  if (!(await allow(`project:${user.id}`, 30, 600))) return { message: "Too many changes in a few minutes. Wait a little." };
   const parsed = projectSchema.safeParse(formObject(formData));
   if (!parsed.success) return { errors: fieldErrors(parsed.error) };
   const id = uuid.safeParse(formData.get("id"));

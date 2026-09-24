@@ -1401,6 +1401,11 @@ export type Database = {
         }
         Returns: string
       }
+      mark_mfa_session: {
+        Args: { p_session: string; p_user: string }
+        Returns: boolean
+      }
+      prepare_account_deletion: { Args: { p_user: string }; Returns: undefined }
       refresh_project_stats: { Args: { p_project: string }; Returns: undefined }
       search_documents: {
         Args: {
@@ -1419,6 +1424,7 @@ export type Database = {
           rank: number
         }[]
       }
+      session_status: { Args: never; Returns: string }
     }
     Enums: {
       [_ in never]: never

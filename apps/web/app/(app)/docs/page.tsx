@@ -6,6 +6,7 @@ import { AskForm } from "@/components/ai-forms";
 import { Badge, buttonClass, Card, CardBody, CardHeader, ColorDot, EmptyState, Input, Meta, PageHeader, Select } from "@/components/ui";
 import { loadAiStatus } from "@/lib/ai";
 import { requireUser } from "@/lib/auth";
+import { allow } from "@/lib/rate-limit";
 import { relativeTime } from "@/lib/format";
 import { loadProjectOptions } from "@/lib/projects";
 import { searchSchema } from "@/lib/validation";
@@ -25,7 +26,8 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
 
   let hits: { chunk_id: number; document_id: string; project_id: string; heading: string | null; content: string; line: number }[] = [];
   let docs = new Map<string, { id: string; title: string; path: string; kind: string }>();
-  if (q) {
+  const limited = q ? !(await allow(`search:${user.id}`, 60, 60)) : false;
+  if (q && !limited) {
     const { data } = await supabase.rpc("search_documents", { p_query: q, p_project: project, p_limit: 40 });
     hits = data ?? [];
     const ids = [...new Set(hits.map((h) => h.document_id))];
@@ -107,6 +109,10 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
           <EmptyState title={projects.length ? "Type something to search" : "Nothing indexed yet"}>
             {projects.length ? "Matches are ranked with headings weighted above body text." : "Watch a folder with the agent to index your notes and reports."}
           </EmptyState>
+        </Card>
+      ) : limited ? (
+        <Card>
+          <EmptyState title="Searching too fast">Wait a minute, then search again.</EmptyState>
         </Card>
       ) : hits.length === 0 ? (
         <Card>

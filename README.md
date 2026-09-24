@@ -43,6 +43,13 @@ about your documents with citations (`/docs` → Ask). The hub builds every prom
 daily budget; the agent relays it to your own 9router and returns the answer. Document text is always fenced as
 data the model must not obey, answers render with no live links or images, and prompts are deleted once answered.
 
+## Account security
+
+Settings → Sign-in and account turns on two-step sign-in with any authenticator app (TOTP), signs out every
+browser and device at once, downloads your data as JSON, and deletes the account. With two-step on, the database
+itself refuses sessions that did not finish the code step through the hub, and ended sessions stop working
+immediately. Test results are in `docs/pentest.md`.
+
 ## Local agent (Windows)
 
 ```bash
@@ -67,8 +74,10 @@ The agent only makes outbound HTTPS requests signed with HMAC-SHA256 (timestamp 
 
 ```bash
 npm test                    # Vitest: core + web + agent
-npm run db:test             # pgTAP: RLS matrix, signup hook, projects and search, groups and sharing, AI jobs
+npm run db:test             # pgTAP: RLS matrix, signup hook, projects and search, groups and sharing, AI jobs, sessions and MFA
 npm run typecheck && npm run lint
-node apps/web/test/smoke.mjs   # end-to-end against the running dev server
+node apps/web/test/smoke.mjs   # end-to-end against the running app (dev server or `next start`)
 node apps/agent/test/e2e.mjs   # agent pairing, signed requests, quota, document sync and AI jobs (after the smoke test)
 ```
+
+CI also runs both end-to-end suites against a production build, then a ZAP baseline scan (`.zap/rules.tsv`).

@@ -4,6 +4,7 @@ import { DEFAULT_TZ, parseClock, zonedInstant } from "@hub/core";
 import type { TablesUpdate } from "@hub/core/db";
 import { refresh } from "next/cache";
 import { requireUser } from "@/lib/auth";
+import { allow } from "@/lib/rate-limit";
 import type { ActionState } from "@/lib/utils";
 import { fieldErrors, formObject, taskSchema, taskUpdateSchema, uuid } from "@/lib/validation";
 
@@ -11,6 +12,7 @@ export async function createTask(_prev: ActionState, formData: FormData): Promis
   const { user, supabase } = await requireUser();
   const parsed = taskSchema.safeParse(formObject(formData));
   if (!parsed.success) return { errors: fieldErrors(parsed.error) };
+  if (!(await allow(`task:${user.id}`, 60, 600))) return { message: "Adding tasks too fast. Wait a few minutes." };
   const t = parsed.data;
 
   const { data: profile } = await supabase.from("profiles").select("timezone").eq("id", user.id).single();

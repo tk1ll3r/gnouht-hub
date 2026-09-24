@@ -1,7 +1,8 @@
-import { CalendarDays, Link2, Monitor, RefreshCw, Shield, Sparkles } from "lucide-react";
+import { CalendarDays, Download, KeyRound, Link2, LogOut, Monitor, RefreshCw, Shield, Sparkles } from "lucide-react";
 import type { Metadata } from "next";
 import { AiSettingsForm } from "@/components/ai-forms";
 import { DevicePairing } from "@/components/device-pairing";
+import { DeleteAccountForm, MfaEnrollment } from "@/components/security-forms";
 import { InlineAction } from "@/components/forms";
 import { IcsSourceForm, PeriodsForm, ProfileForm } from "@/components/settings-forms";
 import { Badge, buttonClass, Card, CardBody, CardHeader, EmptyState, Meta, PageHeader, ProgressBar } from "@/components/ui";
@@ -12,6 +13,7 @@ import { googleConfigured } from "@/lib/env";
 import { auditLabel, formatDue, isRecent, relativeTime } from "@/lib/format";
 import { deleteSource, saveGoogleCalendars, syncSourceNow, toggleSource } from "./actions";
 import { revokeDevice } from "./device-actions";
+import { removeMfaFactor, signOutEverywhere } from "./security-actions";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -35,6 +37,8 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
     loadAiStatus(supabase, user.id),
     supabase.from("ai_jobs").select("id, kind, status, used_tokens, reserved_tokens, created_at, error").order("created_at", { ascending: false }).limit(8),
   ]);
+  const { data: factors } = await supabase.auth.mfa.listFactors();
+  const totp = factors?.totp.find((f) => f.status === "verified");
   const noticeKey = typeof params.connected === "string" ? params.connected : typeof params.error === "string" ? params.error : null;
   const notice = noticeKey ? NOTICES[noticeKey] : null;
   const tz = ws.options.tz;
@@ -237,6 +241,54 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
           <CardBody className={devices?.length ? "border-t border-border" : undefined}>
             <DevicePairing />
           </CardBody>
+        </Card>
+
+        <Card id="security" className="lg:col-span-2">
+          <CardHeader
+            title={
+              <span className="inline-flex items-center gap-1.5">
+                <KeyRound className="size-4" /> Sign-in and account
+              </span>
+            }
+            description="Two-step sign-in, sessions and your data."
+          />
+          <div className="divide-y divide-border/70">
+            <CardBody className="py-4">
+              <h3 className="mb-2 text-sm font-semibold">Two-step sign-in</h3>
+              {totp ? (
+                <div className="flex flex-wrap items-center gap-3 text-[13.5px]">
+                  <Badge tone="ok">on</Badge>
+                  <span className="text-muted">
+                    {totp.friendly_name ?? "Authenticator app"}, added {formatDue(totp.created_at, tz)}
+                  </span>
+                  <InlineAction action={removeMfaFactor} fields={{ factor_id: totp.id }} confirm="Turn off two-step sign-in?" variant="danger">
+                    Turn off
+                  </InlineAction>
+                </div>
+              ) : (
+                <MfaEnrollment />
+              )}
+            </CardBody>
+            <CardBody className="flex flex-wrap items-center gap-3 py-4">
+              <form action={signOutEverywhere}>
+                <button className={buttonClass("secondary", "sm")}>
+                  <LogOut className="size-3.5" /> Sign out everywhere
+                </button>
+              </form>
+              <a href="/api/me/export" className={buttonClass("secondary", "sm")} download>
+                <Download className="size-3.5" /> Download my data
+              </a>
+              <span className="text-[12.5px] text-muted">Signing out everywhere ends every session, including this one.</span>
+            </CardBody>
+            <CardBody className="py-4">
+              <details>
+                <summary className="w-fit cursor-pointer text-sm font-semibold text-danger">Delete account</summary>
+                <div className="mt-3">
+                  <DeleteAccountForm email={user.email ?? ""} />
+                </div>
+              </details>
+            </CardBody>
+          </div>
         </Card>
 
         <Card className="lg:col-span-2">

@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { buildCsp } from "./lib/csp";
 
 /** Paths reachable without a session. Everything else redirects to /login. */
-const PUBLIC_PREFIXES = ["/login", "/auth/", "/invite/"];
+const PUBLIC_PREFIXES = ["/login", "/auth/", "/invite/", "/.well-known/"];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((prefix) => pathname === prefix.replace(/\/$/, "") || pathname.startsWith(prefix));
@@ -51,6 +51,13 @@ export async function proxy(request: NextRequest) {
   if (pathname === "/") return redirectTo(signedIn ? "/today" : "/login");
   if (!signedIn && !isPublic(pathname)) {
     return redirectTo(`/login?next=${encodeURIComponent(pathname + search)}`);
+  }
+  if (signedIn && !isPublic(pathname)) {
+    // Users with a verified TOTP factor finish the second step before seeing any page.
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (aal?.nextLevel === "aal2" && aal.currentLevel !== "aal2") {
+      return redirectTo(`/login/mfa?next=${encodeURIComponent(pathname + search)}`);
+    }
   }
   if (signedIn && pathname === "/login") return redirectTo("/today");
 

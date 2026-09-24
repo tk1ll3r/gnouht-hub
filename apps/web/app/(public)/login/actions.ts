@@ -2,7 +2,9 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { sha256Hex } from "@/lib/crypto";
 import { env } from "@/lib/env";
+import { allow, clientIp } from "@/lib/rate-limit";
 import { safeNextPath } from "@/lib/safe-redirect";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionState } from "@/lib/utils";
@@ -17,6 +19,12 @@ export async function sendMagicLink(_prev: ActionState, formData: FormData): Pro
   if (!parsed.success) return { errors: { email: [parsed.error.issues[0]?.message ?? "Invalid email"] } };
 
   const next = safeNextPath(parsed.data.next);
+  // Per IP and per address (hashed, so the limiter table holds no emails). Same reply as success when
+  // limited per address, so the limit itself does not reveal which addresses were tried.
+  if (!(await allow(`magic-ip:${await clientIp()}`, 10, 600))) return { message: "Too many sign-in attempts. Wait a few minutes and try again." };
+  if (!(await allow(`magic-email:${sha256Hex(parsed.data.email)}`, 4, 600))) {
+    return { ok: true, message: "If this address is invited, a sign-in link is on its way. Check your inbox." };
+  }
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithOtp({
     email: parsed.data.email,

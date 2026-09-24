@@ -1,0 +1,35 @@
+{
+  "name": "gnouht-hub",
+  "private": true,
+  "type": "module",
+  "description": "Student Ops Hub — courses, calendar urgency, project progress, AI quota and study groups at hub.gnouht.space",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "npm run dev -w @hub/web",
+    "build": "npm run build -w @hub/web && npm run build -w @hub/agent",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db": "node scripts/supabase.mjs",
+    "db:start": "node scripts/supabase.mjs start -x logflare,vector",
+    "db:stop": "node scripts/supabase.mjs stop",
+    "db:status": "node scripts/supabase.mjs status",
+    "db:reset": "node scripts/supabase.mjs db reset",
+    "db:test": "node scripts/supabase.mjs test db",
+    "db:lint": "node scripts/supabase.mjs db lint --level warning",
+    "db:types": "node scripts/supabase.mjs --gen-types"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "@vitest/coverage-v8": "^5.0.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.1"
+  }
+}

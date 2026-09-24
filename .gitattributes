@@ -1,0 +1,15 @@
+# The repo is used from both Windows and WSL: keep LF everywhere so SQL, shell and TS files behave the same.
+* text=auto eol=lf
+
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+*.woff binary
+*.woff2 binary

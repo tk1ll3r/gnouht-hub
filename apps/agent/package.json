@@ -1,0 +1,30 @@
+{
+  "name": "@hub/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Outbound-only local agent: indexes project documents, reads 9router quota, runs AI jobs, syncs UIT data",
+  "bin": {
+    "hub-agent": "./dist/hub-agent.mjs"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@hub/core": "*",
+    "@napi-rs/keyring": "^2.1.0",
+    "chokidar": "^5.0.0",
+    "fflate": "^0.8.3",
+    "mammoth": "^1.12.3",
+    "picomatch": "^4.0.7",
+    "unpdf": "^1.8.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/picomatch": "^4.0.3",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15"
+  }
+}

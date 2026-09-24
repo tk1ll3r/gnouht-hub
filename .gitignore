@@ -1,0 +1,32 @@
+# dependencies
+node_modules/
+
+# builds
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# env & secrets — only *.example files are committed
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# tooling
+.vercel/
+coverage/
+playwright-report/
+test-results/
+blob-report/
+supabase/.temp/
+supabase/.branches/
+
+# os / editors
+.DS_Store
+Thumbs.db
+.idea/
+*.log

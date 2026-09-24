@@ -1,0 +1,19 @@
+{
+  "name": "@hub/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pure, framework-free logic shared by the web app and the local agent",
+  "exports": {
+    ".": "./src/index.ts",
+    "./db": "./src/db.types.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@date-fns/tz": "^1.5.0",
+    "date-fns": "^4.4.0",
+    "zod": "^4.6.5"
+  }
+}

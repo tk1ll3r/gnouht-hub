@@ -21,6 +21,7 @@ export async function createTask(_prev: ActionState, formData: FormData): Promis
     title: t.title,
     kind: t.kind,
     course_id: t.course_id || null,
+    project_id: t.project_id || null,
     due_at: dueAt?.toISOString() ?? null,
     estimate_hours: t.estimate_hours ?? null,
     notes: t.notes ?? null,

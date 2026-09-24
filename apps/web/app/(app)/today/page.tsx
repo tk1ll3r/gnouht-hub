@@ -142,6 +142,10 @@ export default async function TodayPage() {
                           <span className="inline-flex items-center gap-1 font-mono text-[12px] text-muted">
                             <ColorDot color={task.course.color} size={8} /> {task.course.code}
                           </span>
+                        ) : task.project ? (
+                          <Link href={`/projects/${task.project.id}`} className="inline-flex items-center gap-1 text-[12px] text-muted hover:text-text">
+                            <ColorDot color={task.project.color} size={8} /> {task.project.name}
+                          </Link>
                         ) : null}
                         <span className="font-medium">{task.title}</span>
                         {ref?.url ? (
@@ -195,7 +199,7 @@ export default async function TodayPage() {
           <Card>
             <CardHeader title="Quick add" />
             <CardBody>
-              <TaskForm courses={courses} compact />
+              <TaskForm courses={courses} projects={data.projects.map((p) => ({ id: p.id, name: p.name }))} compact />
             </CardBody>
           </Card>
         </div>

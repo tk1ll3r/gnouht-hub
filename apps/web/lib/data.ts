@@ -146,13 +146,26 @@ export async function loadTasks(client: Client, userId: string, options: { inclu
   return data ?? [];
 }
 
+export interface ProjectLabel {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export interface RankableTask extends UrgencyTask {
   row: TaskRow;
   course: Course | null;
+  project: ProjectLabel | null;
 }
 
-export function toRankable(tasks: TaskRow[], courses: Course[]): RankableTask[] {
+export async function loadProjectLabels(client: Client, userId: string): Promise<ProjectLabel[]> {
+  const { data } = await client.from("projects").select("id, name, color").eq("user_id", userId);
+  return data ?? [];
+}
+
+export function toRankable(tasks: TaskRow[], courses: Course[], projects: ProjectLabel[] = []): RankableTask[] {
   const byId = new Map(courses.map((c) => [c.id, c]));
+  const projectById = new Map(projects.map((p) => [p.id, p]));
   return tasks.map((row) => {
     const course = row.course_id ? byId.get(row.course_id) ?? null : null;
     return {
@@ -166,6 +179,7 @@ export function toRankable(tasks: TaskRow[], courses: Course[]): RankableTask[] 
       weight: course ? Number(course.weight) : 1,
       row,
       course,
+      project: row.project_id ? projectById.get(row.project_id) ?? null : null,
     };
   });
 }
@@ -197,12 +211,16 @@ export async function buildToday(client: Client, userId: string, now: Date = new
   const dayStartAt = zonedInstant(todayKey, 0, tz);
   const horizon = new Date(now.getTime() + 60 * DAY_MS);
 
-  const [events, taskRows] = await Promise.all([loadEvents(client, userId, dayStartAt, horizon), loadTasks(client, userId)]);
+  const [events, taskRows, projects] = await Promise.all([
+    loadEvents(client, userId, dayStartAt, horizon),
+    loadTasks(client, userId),
+    loadProjectLabels(client, userId),
+  ]);
   const classes = classesBetween(workspace, dayStartAt, horizon);
   const busy = busyIntervals(classes, events);
   const freeOptions = { tz, dayStart, dayEnd, bufferMinutes };
 
-  const tasks = toRankable(taskRows, workspace.courses);
+  const tasks = toRankable(taskRows, workspace.courses, projects);
   const { ranked, undated } = rankTasks(tasks, { now, busy, ...freeOptions });
 
   const tomorrowStart = zonedInstant(addDaysToKey(todayKey, 1), 0, tz);
@@ -272,10 +290,10 @@ export async function buildToday(client: Client, userId: string, now: Date = new
     agenda: agenda.filter((a) => a.kind !== "study").map((a) => ({ title: a.title, start: a.start, end: a.end, allDay: a.allDay, detail: a.detail })),
     freeHoursToday,
     clusters,
-    labelOf: (task) => task.course?.code ?? null,
+    labelOf: (task) => task.course?.code ?? task.project?.name ?? null,
   });
 
-  return { workspace, now, todayKey, ranked, undated, agenda, freeHoursToday, load, clusters, studyBlocks, brief };
+  return { workspace, projects, now, todayKey, ranked, undated, agenda, freeHoursToday, load, clusters, studyBlocks, brief };
 }
 
 export type TodayData = Awaited<ReturnType<typeof buildToday>>;

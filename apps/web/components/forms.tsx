@@ -110,7 +110,9 @@ export function InlineAction({
         <input key={name} type="hidden" name={name} value={value} />
       ))}
       <SubmitButton variant={armed ? "danger" : variant} size={size} className={className} pendingLabel="…">
-        <span title={armed ? confirm : title}>{armed ? "Confirm?" : children}</span>
+        <span title={armed ? confirm : title} className="inline-flex items-center gap-1">
+          {armed ? "Confirm?" : children}
+        </span>
       </SubmitButton>
     </form>
   );

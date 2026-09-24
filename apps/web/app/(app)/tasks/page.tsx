@@ -6,7 +6,7 @@ import { InlineAction } from "@/components/forms";
 import { TaskControls, TaskForm } from "@/components/task-forms";
 import { Badge, Card, CardBody, CardHeader, ColorDot, EmptyState, PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
-import { busyIntervals, classesBetween, loadEvents, loadTasks, loadWorkspace, toRankable } from "@/lib/data";
+import { busyIntervals, classesBetween, loadEvents, loadProjectLabels, loadTasks, loadWorkspace, toRankable } from "@/lib/data";
 import { formatDue } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { deleteTask } from "./actions";
@@ -23,9 +23,13 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
   const ws = await loadWorkspace(supabase, user.id);
   const now = new Date();
   const horizon = new Date(now.getTime() + 60 * 86_400_000);
-  const [rows, events] = await Promise.all([loadTasks(supabase, user.id, { includeDone: view !== "open" }), loadEvents(supabase, user.id, now, horizon)]);
+  const [rows, events, projects] = await Promise.all([
+    loadTasks(supabase, user.id, { includeDone: view !== "open" }),
+    loadEvents(supabase, user.id, now, horizon),
+    loadProjectLabels(supabase, user.id),
+  ]);
 
-  const tasks = toRankable(rows, ws.courses);
+  const tasks = toRankable(rows, ws.courses, projects);
   const busy = busyIntervals(classesBetween(ws, now, horizon), events);
   const { ranked } = rankTasks(tasks, { now, busy, ...ws.options });
   const rankById = new Map(ranked.map((r) => [r.task.id, r]));
@@ -77,6 +81,12 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
                             {t.course.code}
                           </span>
                         ) : null}
+                        {t.project ? (
+                          <Link href={`/projects/${t.project.id}`} className="inline-flex items-center gap-1 text-[12px] text-muted hover:text-text">
+                            <ColorDot color={t.project.color} size={8} />
+                            {t.project.name}
+                          </Link>
+                        ) : null}
                         <span className={cn("font-medium", finished && "text-muted line-through")}>{t.title}</span>
                         {t.row.source === "moodle" ? <Badge>Moodle</Badge> : null}
                         {t.row.source === "markdown" ? (
@@ -121,7 +131,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
         <Card className="h-fit">
           <CardHeader title="New task" />
           <CardBody>
-            <TaskForm courses={ws.courses.map((c) => ({ id: c.id, code: c.code, name: c.name }))} />
+            <TaskForm courses={ws.courses.map((c) => ({ id: c.id, code: c.code, name: c.name }))} projects={projects.map((p) => ({ id: p.id, name: p.name }))} />
           </CardBody>
         </Card>
       </div>

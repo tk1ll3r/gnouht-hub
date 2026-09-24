@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { DEFAULT_INCLUDE } from "./documents";
 
 export const SERVICE = "gnouht-hub-agent";
 
@@ -36,6 +37,18 @@ export const configSchema = z.object({
   ninerouterUrl: z.url().default("http://127.0.0.1:20128"),
   moodleUrl: z.url().default("https://courses.uit.edu.vn"),
   moodleUsername: z.string().nullable().default(null),
+  /** Watched project folders (`hub-agent project add`). */
+  projects: z
+    .array(
+      z.object({
+        root: z.string().min(1),
+        name: z.string().trim().min(1).max(120),
+        include: z.array(z.string().min(1).max(200)).max(20).default(DEFAULT_INCLUDE),
+        exclude: z.array(z.string().min(1).max(200)).max(50).default([]),
+      }),
+    )
+    .max(30)
+    .default([]),
 });
 export type AgentConfig = z.infer<typeof configSchema>;
 

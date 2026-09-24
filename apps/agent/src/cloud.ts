@@ -11,30 +11,40 @@ export class CloudError extends Error {
   }
 }
 
-/** Outbound-only client for the hub: every request is HMAC-signed with a fresh nonce. */
+/**
+ * Outbound-only client for the hub: every request is HMAC-signed with a fresh nonce (so a retry is a
+ * new request, never a replay). Rate-limited requests (429) are retried twice with a growing delay.
+ */
 export class CloudClient {
   constructor(
     private readonly hubUrl: string,
     private readonly deviceId: string,
     private readonly secret: string,
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly retryDelayMs = 20_000,
   ) {}
 
   async post<T = unknown>(path: string, payload: unknown): Promise<T> {
     const body = JSON.stringify(payload);
-    const response = await this.fetchImpl(new URL(path, this.hubUrl), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "user-agent": `gnouht-hub-agent/${AGENT_VERSION}`,
-        ...signedHeaders(this.deviceId, this.secret, "POST", path, body),
-      },
-      body,
-      signal: AbortSignal.timeout(30_000),
-    });
-    const json = (await response.json().catch(() => ({}))) as { error?: string };
-    if (!response.ok) throw new CloudError(json.error ?? `HTTP ${response.status}`, response.status);
-    return json as T;
+    for (let attempt = 0; ; attempt++) {
+      const response = await this.fetchImpl(new URL(path, this.hubUrl), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "user-agent": `gnouht-hub-agent/${AGENT_VERSION}`,
+          ...signedHeaders(this.deviceId, this.secret, "POST", path, body),
+        },
+        body,
+        signal: AbortSignal.timeout(60_000),
+      });
+      const json = (await response.json().catch(() => ({}))) as { error?: string };
+      if (response.status === 429 && attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs * (attempt + 1)));
+        continue;
+      }
+      if (!response.ok) throw new CloudError(json.error ?? `HTTP ${response.status}`, response.status);
+      return json as T;
+    }
   }
 }
 

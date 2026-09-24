@@ -12,7 +12,12 @@ export interface CourseOption {
   name: string;
 }
 
-export function TaskForm({ courses, compact = false }: { courses: CourseOption[]; compact?: boolean }) {
+export interface ProjectOption {
+  id: string;
+  name: string;
+}
+
+export function TaskForm({ courses, projects = [], compact = false }: { courses: CourseOption[]; projects?: ProjectOption[]; compact?: boolean }) {
   return (
     <ActionForm action={createTask} resetOnSuccess hideSuccess={compact} className="grid gap-3 sm:grid-cols-6">
       {(state) => (
@@ -30,6 +35,18 @@ export function TaskForm({ courses, compact = false }: { courses: CourseOption[]
               ))}
             </Select>
           </Field>
+          {projects.length ? (
+            <Field label="Project" htmlFor="t-project" error={state.errors?.project_id} className="sm:col-span-6">
+              <Select id="t-project" name="project_id" defaultValue="">
+                <option value="">No project</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
           <Field label="Type" htmlFor="t-kind" error={state.errors?.kind} className="sm:col-span-3">
             <Select id="t-kind" name="kind" defaultValue="task">
               {TASK_KINDS.map((kind) => (

@@ -77,7 +77,8 @@ const { data: course } = await admin
   .insert({ user_id: ownerId, semester_id: semester.id, code: "NT219", class_code: "NT219.Q11", name: "Mật mã học", color: "#7c3aed", weight: 1.5 })
   .select()
   .single();
-const weekday = ((new Date().getUTCDay() + 6) % 7) + 1;
+// ISO weekday of "today" in the owner's time zone (Asia/Ho_Chi_Minh, UTC+7), not UTC.
+const weekday = ((new Date(Date.now() + 7 * 3_600_000).getUTCDay() + 6) % 7) + 1;
 await admin.from("course_sessions").insert({ user_id: ownerId, course_id: course.id, weekday, period_start: 1, period_end: 3, room: "B1.12" });
 const hours = (h) => new Date(Date.now() + h * 3_600_000).toISOString();
 await admin.from("tasks").insert([
@@ -88,8 +89,48 @@ await admin.from("tasks").insert([
   { user_id: ownerId, title: "Dọn repo CTF", kind: "task" },
 ]);
 
+// Projects: one agent-style project with an ingested document (as the agent endpoint would store it).
+await admin.from("projects").delete().eq("user_id", ownerId);
+const { data: project } = await admin
+  .from("projects")
+  .insert({ user_id: ownerId, name: "Đồ án IDS", source: "agent", folder_key: "a".repeat(64), folder_label: "…/Research/IDS", course_id: course.id })
+  .select()
+  .single();
+const docMarkdown = [
+  "# Tiến độ đồ án",
+  "",
+  "- [x] Chọn đề tài",
+  "- [!] Hỏi thầy về dữ liệu",
+  "",
+  "<script>alert('xss')</script> [click](javascript:alert(1)) ![remote](https://tracker.example/p.png)",
+].join("\n");
+const { data: docId } = await admin.rpc("ingest_document", {
+  p_project: project.id,
+  p_document: { path: "tien-do.md", kind: "markdown", title: "Tiến độ đồ án", hash: "b".repeat(64), content: docMarkdown, stats: { total: 2, done: 1, attention: 1 } },
+  p_chunks: [{ ord: 0, heading: "Tiến độ đồ án", content: "Hỏi thầy về dữ liệu trước hạn nộp abstract", line: 1 }],
+  p_items: [
+    { key: "0000000000000001", text: "Chọn đề tài", status: "done", line: 3 },
+    { key: "0000000000000002", text: "Hỏi thầy về dữ liệu", status: "attention", line: 4 },
+  ],
+  p_deadlines: [{ key: "m1", title: "Nộp abstract", kind: "milestone", dueAt: hours(96), ref: { path: "tien-do.md", line: 9, hard: true } }],
+});
+await admin.rpc("refresh_project_stats", { p_project: project.id });
+check(Boolean(docId), "a document can be ingested for the owner's project");
+
 // 5. Authenticated pages render
-for (const path of ["/today", "/courses", `/courses/${course.id}`, "/tasks", "/calendar", "/quota", "/settings"]) {
+for (const path of [
+  "/today",
+  "/courses",
+  `/courses/${course.id}`,
+  "/tasks",
+  "/calendar",
+  "/quota",
+  "/settings",
+  "/projects",
+  `/projects/${project.id}`,
+  `/projects/${project.id}/docs/${docId}`,
+  "/docs?q=hoi+thay",
+]) {
   const res = await get(path);
   const html = await res.text();
   check(res.status === 200, `GET ${path}`, String(res.status));
@@ -103,6 +144,15 @@ for (const path of ["/today", "/courses", `/courses/${course.id}`, "/tasks", "/c
     check(scripts.length > 0 && scripts.every((attrs) => attrs.includes(`nonce="${nonce}"`)), "every <script> carries the request nonce", `${scripts.length} scripts`);
     check(!/\sstyle="/.test(html), "no inline style attributes in the HTML");
   }
+  if (path === "/projects") check(html.includes("Đồ án IDS") && html.includes("1/2 items"), "Projects lists progress from checklists");
+  if (path === `/projects/${project.id}`) {
+    check(html.includes("Nộp abstract") && html.includes("hard deadline") && html.includes("Hỏi thầy về dữ liệu"), "project page shows milestones and attention items");
+  }
+  if (path.includes("/docs/")) {
+    check(!html.includes("<script>alert") && !html.includes('href="javascript:'), "document view drops raw HTML and javascript: links");
+    check(!html.includes("tracker.example/p.png\""), "document view does not load remote images");
+  }
+  if (path.startsWith("/docs?")) check(/<mark[^>]*>Hỏi<\/mark>/.test(html) && html.includes("Tiến độ đồ án"), "search finds accent-insensitive matches and highlights them");
 }
 
 // 6. Another user's course is a 404, not a leak
@@ -113,6 +163,9 @@ if (other?.user) {
   const res = await get(`/courses/${foreign.id}`);
   const html = await res.text();
   check(res.status === 404 && !html.includes("Secret"), "someone else's course returns 404", String(res.status));
+  const { data: foreignProject } = await admin.from("projects").insert({ user_id: other.user.id, name: "Hidden project" }).select().single();
+  const projectRes = await get(`/projects/${foreignProject.id}`);
+  check(projectRes.status === 404 && !(await projectRes.text()).includes("Hidden project"), "someone else's project returns 404", String(projectRes.status));
   await admin.auth.admin.deleteUser(other.user.id);
 }
 

@@ -30,6 +30,7 @@ export function relativeTime(date: Date | string, now: Date = new Date()): strin
   const d = typeof date === "string" ? new Date(date) : date;
   const diff = Math.round((d.getTime() - now.getTime()) / 60_000);
   const abs = Math.abs(diff);
+  if (abs < 1) return "just now";
   const unit = abs < 60 ? `${abs}m` : abs < 48 * 60 ? `${Math.round(abs / 60)}h` : `${Math.round(abs / 1440)}d`;
   return diff >= 0 ? `in ${unit}` : `${unit} ago`;
 }

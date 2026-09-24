@@ -2,6 +2,7 @@
 // exported separately as "@hub/core/protocol" and never pulled into browser bundles.
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
+import { DOCUMENT_KINDS, isSafeRelativePath, MAX_DOCUMENT_CHARS } from "./documents";
 
 export const SIGNATURE_HEADERS = {
   device: "x-hub-device",
@@ -70,6 +71,13 @@ export const pairResponseSchema = z.object({ deviceId: z.uuid(), secret: z.strin
 export const heartbeatSchema = z.object({
   agentVersion: z.string().max(20),
   ninerouter: z.object({ reachable: z.boolean(), loggedIn: z.boolean() }),
+  documents: z
+    .object({
+      folders: z.number().int().min(0).max(100),
+      lastSyncAt: z.iso.datetime({ offset: true }).nullable(),
+      errors: z.array(z.string().max(200)).max(10),
+    })
+    .optional(),
 });
 
 const finiteOrNull = z.number().finite().nullable();
@@ -130,6 +138,55 @@ export const uitPayloadSchema = z.object({
   deadlines: z.array(uitDeadlineSchema).max(500),
 });
 export type UitPayload = z.infer<typeof uitPayloadSchema>;
+
+// ── project documents ───────────────────────────────────────────────────────
+
+export const MAX_PROJECT_FILES = 1000;
+const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+export const relativePathSchema = z.string().refine(isSafeRelativePath, "invalid relative path");
+
+/** Step 1: the agent lists every indexable file of a watched folder (path + content hash). */
+export const projectSyncSchema = z.object({
+  /** sha256 of the folder's normalised absolute path: recognises the folder without revealing it. */
+  folderKey: sha256Schema,
+  name: z.string().trim().min(1).max(120),
+  /** Last path segments only, for display ("…/Research/IDS"). */
+  folderLabel: z.string().max(200),
+  manifest: z
+    .array(z.object({ path: relativePathSchema, hash: sha256Schema }))
+    .max(MAX_PROJECT_FILES)
+    .refine((files) => new Set(files.map((f) => f.path)).size === files.length, "duplicate paths"),
+});
+export type ProjectSync = z.infer<typeof projectSyncSchema>;
+export const projectSyncResponseSchema = z.object({
+  projectId: z.uuid(),
+  archived: z.boolean(),
+  /** Paths whose stored hash differs. The agent intersects this with its own listing before reading anything. */
+  need: z.array(z.string()),
+});
+
+export const documentUploadSchema = z.object({
+  projectId: z.uuid(),
+  documents: z
+    .array(
+      z.object({
+        path: relativePathSchema,
+        kind: z.enum(DOCUMENT_KINDS),
+        hash: sha256Schema,
+        sizeBytes: z.number().int().min(0).max(200 * 1024 * 1024),
+        modifiedAt: z.iso.datetime({ offset: true }),
+        /** Extracted text, secrets already redacted on the PC. Empty when extraction failed. */
+        text: z.string().max(MAX_DOCUMENT_CHARS),
+        truncated: z.boolean(),
+        /** Secrets the agent removed (the hub redacts again and adds its own count). */
+        redactions: z.number().int().min(0).max(100_000).default(0),
+        error: z.string().max(200).nullable(),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+export type DocumentUpload = z.infer<typeof documentUploadSchema>;
 
 /** Masks an email-like label: "nguyenvana@gmail.com" → "ng…@gmail.com". */
 export function maskLabel(label: string): string {

@@ -125,4 +125,79 @@
     padding: 0.1rem 0.3rem;
     border-radius: 0.25rem;
   }
+
+  /* Full documents (project files) on top of .prose-hub. */
+  .prose-doc h1 {
+    margin: 0.5rem 0 0.75rem;
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .prose-doc h2 {
+    margin: 1.5rem 0 0.5rem;
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+  .prose-doc h3 {
+    margin: 1.25rem 0 0.4rem;
+    font-size: 0.95rem;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--text);
+  }
+  .prose-doc h4,
+  .prose-doc h5,
+  .prose-doc h6 {
+    margin: 1rem 0 0.3rem;
+    font-weight: 600;
+  }
+  .prose-doc ul:has(> li > input[type="checkbox"]) {
+    list-style: none;
+    padding-left: 0.25rem;
+  }
+  .prose-doc blockquote {
+    margin: 0.75rem 0;
+    padding-left: 0.75rem;
+    border-left: 3px solid var(--border);
+    color: var(--muted);
+  }
+  .prose-doc pre {
+    margin: 0.75rem 0;
+    padding: 0.75rem;
+    overflow-x: auto;
+    border-radius: 0.5rem;
+    background: var(--surface-2);
+    font-size: 0.8rem;
+  }
+  .prose-doc pre code {
+    padding: 0;
+    background: none;
+  }
+  .prose-doc hr {
+    margin: 1.25rem 0;
+    border-color: var(--border);
+  }
+  .prose-doc table {
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  .prose-doc th,
+  .prose-doc td {
+    padding: 0.3rem 0.6rem;
+    border: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+  .prose-doc th {
+    background: var(--surface-2);
+    font-weight: 600;
+  }
+  mark.hit {
+    border-radius: 0.2rem;
+    background: var(--warn-soft);
+    color: inherit;
+    padding: 0 0.1rem;
+  }
 }

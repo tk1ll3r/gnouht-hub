@@ -106,6 +106,7 @@ export const sessionSchema = z
 export const taskSchema = z.object({
   title: z.string().trim().min(1, "Required").max(300),
   course_id: z.union([uuid, z.literal("")]).optional(),
+  project_id: z.union([uuid, z.literal("")]).optional(),
   kind: z.enum(TASK_KINDS),
   due_date: dateKey.optional().or(z.literal("")),
   due_time: clock.optional().or(z.literal("")),
@@ -144,4 +145,24 @@ export const icsSourceSchema = z.object({
   name: z.string().trim().min(1, "Required").max(80),
   url: z.string().trim().min(1, "Required").max(2000),
   flavor: z.enum(["moodle", "generic"]),
+});
+
+export const projectSchema = z.object({
+  name: z.string().trim().min(1, "Required").max(120),
+  description: optionalText(2000),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Pick a colour"),
+  course_id: z
+    .union([uuid, z.literal("")])
+    .optional()
+    .transform((v) => v || null),
+  status: z.enum(["active", "paused", "done", "archived"]),
+  due_on: dateKey
+    .optional()
+    .or(z.literal(""))
+    .transform((v) => v || null),
+});
+
+export const searchSchema = z.object({
+  q: z.string().trim().max(200).catch(""),
+  project: uuid.optional().catch(undefined),
 });

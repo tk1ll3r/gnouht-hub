@@ -1,4 +1,4 @@
-# Threat model (v0, milestone M1)
+# Threat model (v1, milestones M1–M3)
 
 ## Assets
 
@@ -33,8 +33,19 @@ owner's PC); friends' data (M4).
 | Elevation | XSS | Strict nonce CSP, no inline styles, react-markdown without raw HTML, escaped email HTML | smoke test, Vitest `email` |
 | Elevation | Clickjacking | `frame-ancestors 'none'` and `X-Frame-Options: DENY` | smoke test |
 | Elevation | Open redirect after login | `safeNextPath`, redirects built from `APP_URL` | Vitest, smoke test |
+| Spoofing | Forged agent request | HMAC-SHA256 over method, path, timestamp, nonce and body hash; secret stored encrypted (AAD `device:<id>`) | agent e2e |
+| Spoofing | Replayed agent request | ±5 min timestamp window + per-device nonce table | agent e2e |
+| Elevation | Agent writing into another user's project | Project looked up by the device owner's id; composite FKs on every child row | pgTAP `040` |
+| Info disclosure | Hub (or an attacker controlling it) steering the agent to read other files | The agent reads only paths from its own listing of the watched folder; symlinks/junctions are never followed; the hub's `need` list is intersected with that listing | Vitest agent `documents` |
+| Info disclosure | Credentials pasted into notes get uploaded | Secret-looking file names and dot files are never listed; regex redaction (keys, tokens, JWTs, private keys, URL passwords, `password=`) on the PC and again on ingest | Vitest `redact`, agent e2e |
+| Info disclosure | Watching an over-broad folder | `project add` refuses drive roots and the home folder and previews what will be indexed; PDFs/slides are opt-in | Vitest agent `documents` |
+| Tampering | Path traversal through a document path | Paths are labels only (never opened on the server), validated by zod and a DB check | Vitest `documents`, pgTAP `040` |
+| Info disclosure | Search returning other users' passages | `search_documents` is SECURITY INVOKER, so RLS applies | pgTAP `040` |
+| Tampering | tsquery syntax injection through the search box | The query is rebuilt from folded alphanumeric words only | pgTAP `040`, Vitest `search` |
+| Elevation | Stored XSS from document Markdown | react-markdown with raw HTML skipped, only http(s) links (`noopener noreferrer nofollow`), no images | smoke test |
+| DoS | Huge folders or documents | 1000 files per folder, 30 folders, 4 MB text / 30 MB binary files, 120k characters and 400 chunks per document, 512 KB request bodies, capped `.pptx` decompression | Vitest, code review |
 
 ## Open items (later milestones)
 
-Agent HMAC authentication and replay protection (M2); project-scoped RLS and invites (M4); AI prompt
-injection and budget races (M5); rate limiting, MFA enforcement, ZAP scan and a manual pentest (M6).
+Project-scoped RLS and invites (M4); AI prompt injection and budget races (M5); rate limiting of user
+actions, MFA enforcement, ZAP scan and a manual pentest (M6).

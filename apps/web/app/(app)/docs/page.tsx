@@ -13,7 +13,7 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
   const params = await searchParams;
   const { q, project } = searchSchema.parse({ q: params.q, project: params.project });
   const { user, supabase } = await requireUser();
-  const projects = await loadProjectOptions(supabase, user.id);
+  const projects = await loadProjectOptions(supabase);
   const projectById = new Map(projects.map((p) => [p.id, p]));
 
   let hits: { chunk_id: number; document_id: string; project_id: string; heading: string | null; content: string; line: number }[] = [];
@@ -44,6 +44,7 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
+              {p.user_id !== user.id ? " (shared)" : ""}
             </option>
           ))}
         </Select>

@@ -54,25 +54,28 @@ export interface ProjectSummary {
   overdue: number;
 }
 
-/** Every project of the user with progress and its next open deadline. */
-export async function loadProjectSummaries(client: Client, userId: string, now: Date = new Date()): Promise<ProjectSummary[]> {
-  const [{ data: projects }, { data: tasks }] = await Promise.all([
-    client.from("projects").select("*").eq("user_id", userId).order("name"),
-    client
-      .from("tasks")
-      .select("id, title, status, due_at, kind, project_id, source, source_ref")
-      .eq("user_id", userId)
-      .not("project_id", "is", null)
-      .order("due_at", { ascending: true, nullsFirst: false })
-      .limit(2000),
-  ]);
+/**
+ * Projects with progress and their next open deadline: the user's own, or ("shared") projects other
+ * members shared with the user's groups — RLS decides which rows are visible, the filter only splits them.
+ */
+export async function loadProjectSummaries(client: Client, userId: string, now: Date = new Date(), scope: "own" | "shared" = "own"): Promise<ProjectSummary[]> {
+  let query = client.from("projects").select("*").order("name");
+  query = scope === "own" ? query.eq("user_id", userId) : query.neq("user_id", userId);
+  const { data: projects } = await query;
+  if (!projects?.length) return [];
+  const { data: tasks } = await client
+    .from("tasks")
+    .select("id, title, status, due_at, kind, project_id, source, source_ref")
+    .in("project_id", projects.map((p) => p.id))
+    .order("due_at", { ascending: true, nullsFirst: false })
+    .limit(2000);
   const byProject = new Map<string, ProjectTask[]>();
   for (const task of tasks ?? []) {
     const list = byProject.get(task.project_id!) ?? [];
     list.push(task);
     byProject.set(task.project_id!, list);
   }
-  return (projects ?? []).map((project) => {
+  return projects.map((project) => {
     const list = byProject.get(project.id) ?? [];
     const open = list.filter((t) => isOpenStatus(t.status as TaskStatus));
     return {
@@ -85,9 +88,22 @@ export async function loadProjectSummaries(client: Client, userId: string, now: 
   });
 }
 
-/** Minimal project list for pickers and labels. */
-export async function loadProjectOptions(client: Client, userId: string) {
-  const { data } = await client.from("projects").select("id, name, color, status").eq("user_id", userId).order("name");
+/** Group names through which each shared project reaches the user. */
+export async function loadShareLabels(client: Client, projectIds: string[]): Promise<Map<string, string[]>> {
+  const labels = new Map<string, string[]>();
+  if (!projectIds.length) return labels;
+  const { data } = await client.from("project_shares").select("project_id, groups(name)").in("project_id", projectIds);
+  for (const row of data ?? []) {
+    const name = (row.groups as { name: string } | null)?.name;
+    if (!name) continue;
+    labels.set(row.project_id, [...(labels.get(row.project_id) ?? []), name]);
+  }
+  return labels;
+}
+
+/** Projects the user can read (own and shared with their groups) for pickers and labels. */
+export async function loadProjectOptions(client: Client) {
+  const { data } = await client.from("projects").select("id, name, color, status, user_id").order("name");
   return data ?? [];
 }
 

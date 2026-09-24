@@ -10,6 +10,7 @@ import {
   Settings,
   Sparkles,
   Sun,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -28,6 +29,7 @@ const ICONS = {
   courses: BookOpen,
   tasks: CheckSquare,
   projects: FolderKanban,
+  groups: Users,
   docs: Search,
   quota: Gauge,
   ai: Sparkles,

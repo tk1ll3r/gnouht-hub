@@ -28,6 +28,13 @@ node scripts/dev-env.mjs    # writes apps/web/.env.local (never printed)
 npm run dev                 # http://localhost:3000 — sign in as owner@example.com, email at http://127.0.0.1:54324
 ```
 
+## Study groups
+
+Create a group at `/groups` and invite classmates by email. An invite is the only way besides the owner's
+allow-list to register, and it works only for the address it was sent to. Members see projects you choose to
+share (read-only) and their deadlines; if they opt in, the group page shows when everyone is free, built from
+classes and busy calendar events — counts only, never what anyone is doing.
+
 ## Local agent (Windows)
 
 ```bash
@@ -51,7 +58,7 @@ The agent only makes outbound HTTPS requests signed with HMAC-SHA256 (timestamp 
 
 ```bash
 npm test                    # Vitest: core + web + agent
-npm run db:test             # pgTAP: RLS matrix, signup hook, projects and search
+npm run db:test             # pgTAP: RLS matrix, signup hook, projects and search, groups and sharing
 npm run typecheck && npm run lint
 node apps/web/test/smoke.mjs   # end-to-end against the running dev server
 node apps/agent/test/e2e.mjs   # agent pairing, signed requests, quota and document sync (after the smoke test)

@@ -1,4 +1,5 @@
 export * from "./analysis";
+export * from "./availability";
 export * from "./brief";
 export * from "./checklist";
 export * from "./deadline-table";

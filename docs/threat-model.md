@@ -1,4 +1,4 @@
-# Threat model (v1, milestones M1–M3)
+# Threat model (v1, milestones M1–M4)
 
 ## Assets
 
@@ -43,9 +43,16 @@ owner's PC); friends' data (M4).
 | Info disclosure | Search returning other users' passages | `search_documents` is SECURITY INVOKER, so RLS applies | pgTAP `040` |
 | Tampering | tsquery syntax injection through the search box | The query is rebuilt from folded alphanumeric words only | pgTAP `040`, Vitest `search` |
 | Elevation | Stored XSS from document Markdown | react-markdown with raw HTML skipped, only http(s) links (`noopener noreferrer nofollow`), no images | smoke test |
+| Spoofing | Registering through someone else's invite | Invites are bound to one email; the sign-up hook admits only pending invites for that exact address, and `accept_group_invite` checks the signed-in email | pgTAP `050`, smoke test |
+| Info disclosure | A forwarded or leaked invite link | The token (24 random bytes) is stored hashed and only identifies the invite; accepting also needs the invited address; links expire (≤14 days), are single-use and revocable; the landing page masks the address and is rate limited | pgTAP `050`, smoke test |
+| Info disclosure | Group members reading each other's private data | Reads widen only for projects explicitly shared (`shared_project_ids()`); tasks, calendars and profiles stay owner-only; the roster RPC returns display names only | pgTAP `050`, smoke test |
+| Info disclosure | Free-time finder leaking schedules | Opt-in per member; computed server-side after a membership check and rate limited; only per-hour counts leave the function, never titles or times of commitments | Vitest `availability`, smoke test |
+| Tampering | Members editing shared projects or sharing others' projects | Update/delete policies stay owner-only; the share insert policy requires owning the project and belonging to the group | pgTAP `050` |
+| DoS / lockout | A group losing its last owner | Trigger blocks removing the last owner while the group exists; limits of 20 groups per user, 30 members and 50 pending invites per group | pgTAP `050` |
+| Elevation | Open redirect through email links | `redirect_to` is honoured only on our own origin and its `next` still passes `safeNextPath` | Vitest `safe-redirect` |
 | DoS | Huge folders or documents | 1000 files per folder, 30 folders, 4 MB text / 30 MB binary files, 120k characters and 400 chunks per document, 512 KB request bodies, capped `.pptx` decompression | Vitest, code review |
 
 ## Open items (later milestones)
 
-Project-scoped RLS and invites (M4); AI prompt injection and budget races (M5); rate limiting of user
-actions, MFA enforcement, ZAP scan and a manual pentest (M6).
+AI prompt injection and budget races (M5); rate limiting of user actions, MFA enforcement, ZAP scan and a
+manual pentest (M6).

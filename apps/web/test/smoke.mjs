@@ -2,6 +2,7 @@
 // End-to-end smoke test against a running `next dev` + local Supabase:
 // closed registration, magic-link sign-in via Mailpit, authenticated pages, cron auth.
 // Usage: node apps/web/test/smoke.mjs   (reads apps/web/.env.local; prints no secrets)
+import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -117,6 +118,35 @@ const { data: docId } = await admin.rpc("ingest_document", {
 await admin.rpc("refresh_project_stats", { p_project: project.id });
 check(Boolean(docId), "a document can be ingested for the owner's project");
 
+// Groups: the owner and a friend share free/busy; the friend shares a project with the owner.
+await admin.from("groups").delete().eq("created_by", ownerId);
+const friendEmail = "friend@example.com";
+let friendId = (await admin.auth.admin.listUsers()).data.users.find((u) => u.email === friendEmail)?.id;
+if (!friendId) friendId = (await admin.auth.admin.createUser({ email: friendEmail, email_confirm: true })).data.user.id;
+await admin.from("profiles").update({ display_name: "Bạn Học" }).eq("id", friendId);
+const { data: group } = await admin.from("groups").insert({ name: "Nhóm NT219", created_by: ownerId }).select().single();
+await admin.from("group_members").insert([
+  { group_id: group.id, user_id: ownerId, role: "owner", share_busy: true },
+  { group_id: group.id, user_id: friendId, role: "member", share_busy: true },
+]);
+await admin.from("projects").delete().eq("user_id", friendId);
+const { data: friendProject } = await admin.from("projects").insert({ user_id: friendId, name: "Friend's lab report", items_total: 4, items_done: 3 }).select().single();
+await admin.from("tasks").insert({ user_id: friendId, project_id: friendProject.id, title: "Nộp lab chung", kind: "milestone", due_at: hours(50) });
+await admin.from("tasks").insert({ user_id: friendId, title: "Friend's private errand", due_at: hours(10) });
+await admin.from("project_shares").insert({ project_id: friendProject.id, group_id: group.id, shared_by: friendId });
+const inviteToken = randomBytes(24).toString("base64url");
+const invitee = `newbie-${Date.now()}@example.com`;
+await admin.from("group_invites").insert({
+  group_id: group.id,
+  email: invitee,
+  token_hash: createHash("sha256").update(inviteToken).digest("hex"),
+  invited_by: ownerId,
+  expires_at: hours(48),
+});
+const { error: invitedSignup } = await anon.auth.signInWithOtp({ email: invitee });
+check(!invitedSignup, "an address with a pending group invite may register", invitedSignup?.message);
+const { data: foreignGroup } = await admin.from("groups").insert({ name: "Not my group" }).select().single();
+
 // 5. Authenticated pages render
 for (const path of [
   "/today",
@@ -130,6 +160,9 @@ for (const path of [
   `/projects/${project.id}`,
   `/projects/${project.id}/docs/${docId}`,
   "/docs?q=hoi+thay",
+  "/groups",
+  `/groups/${group.id}`,
+  `/projects/${friendProject.id}`,
 ]) {
   const res = await get(path);
   const html = await res.text();
@@ -152,6 +185,14 @@ for (const path of [
     check(!html.includes("<script>alert") && !html.includes('href="javascript:'), "document view drops raw HTML and javascript: links");
     check(!html.includes("tracker.example/p.png\""), "document view does not load remote images");
   }
+  if (path === "/groups") check(html.includes("Nhóm NT219") && html.includes("2 members"), "Groups lists memberships");
+  if (path === `/groups/${group.id}`) {
+    check(html.includes("Bạn Học") && html.includes("Nộp lab chung") && html.includes("Friend&#x27;s lab report"), "group page shows roster, team deadlines and shared projects");
+    check(html.includes("How many of 2 members are free"), "group page shows the free-time grid for opted-in members");
+    check(!html.includes("private errand"), "group page never shows members' personal tasks");
+    check(html.includes(invitee), "owners see pending invites");
+  }
+  if (path === `/projects/${friendProject.id}`) check(html.includes("read-only") && !html.includes("Save project"), "a shared project opens read-only for members");
   if (path.startsWith("/docs?")) check(/<mark[^>]*>Hỏi<\/mark>/.test(html) && html.includes("Tiến độ đồ án"), "search finds accent-insensitive matches and highlights them");
 }
 
@@ -164,10 +205,23 @@ if (other?.user) {
   const html = await res.text();
   check(res.status === 404 && !html.includes("Secret"), "someone else's course returns 404", String(res.status));
   const { data: foreignProject } = await admin.from("projects").insert({ user_id: other.user.id, name: "Hidden project" }).select().single();
+  const groupRes = await get(`/groups/${foreignGroup.id}`);
+  check(groupRes.status === 404 && !(await groupRes.text()).includes("Not my group"), "a group you are not in returns 404", String(groupRes.status));
   const projectRes = await get(`/projects/${foreignProject.id}`);
   check(projectRes.status === 404 && !(await projectRes.text()).includes("Hidden project"), "someone else's project returns 404", String(projectRes.status));
   await admin.auth.admin.deleteUser(other.user.id);
 }
+
+// Invite landing page: public, but only the invited address can accept.
+const inviteAnon = await fetch(`${APP}/invite/${inviteToken}`);
+const inviteAnonHtml = await inviteAnon.text();
+check(inviteAnon.status === 200 && inviteAnonHtml.includes("Sign in to accept") && inviteAnonHtml.includes("ne…@example.com") && !inviteAnonHtml.includes(invitee),
+  "the invite page works signed out and masks the invited address");
+const inviteOther = await (await get(`/invite/${inviteToken}`)).text();
+check(inviteOther.includes("but this invite is for") && !inviteOther.includes("Join the group"), "someone signed in with another address cannot accept");
+const inviteBogus = await (await fetch(`${APP}/invite/${"x".repeat(32)}`)).text();
+check(inviteBogus.includes("no longer valid"), "unknown invite tokens are rejected");
+await admin.from("groups").delete().in("id", [group.id, foreignGroup.id]);
 
 // 7. Protected routes and cron auth
 const anonToday = await fetch(`${APP}/today`, { redirect: "manual" });

@@ -65,3 +65,21 @@ ${out.join("\n")}
 <p style="margin:16px 0 0;font-size:12px;color:#666b75">You get this because morning briefs are on. Turn them off in Settings.</p>
 </div></body></html>`;
 }
+
+/** Group invitation. Group and inviter names are user-chosen, so everything is escaped. */
+export function inviteEmail(input: { groupName: string; inviterName: string; link: string; expiresOn: string }): { subject: string; html: string; text: string } {
+  const group = escapeHtml(input.groupName);
+  const inviter = escapeHtml(input.inviterName);
+  const link = escapeHtml(input.link);
+  return {
+    subject: `${input.inviterName.slice(0, 60)} invited you to “${input.groupName.slice(0, 80)}” on gnouht hub`,
+    text: `${input.inviterName} invited you to the study group "${input.groupName}" on gnouht hub.\n\nOpen this link to join (valid until ${input.expiresOn}):\n${input.link}\n\nIf you did not expect this, ignore this email.`,
+    html: `<!doctype html><html><body style="margin:0;padding:24px;background:#f6f7f9;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#15171a;font-size:14px;line-height:1.55">
+<div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #e3e6eb;border-radius:12px;padding:24px">
+<p style="margin:0 0 12px"><strong>${inviter}</strong> invited you to the study group <strong>${group}</strong> on gnouht hub.</p>
+<p style="margin:0 0 20px">Members share project progress and find times when everyone is free. Your own tasks and calendar stay private.</p>
+<p style="margin:0 0 20px"><a href="${link}" style="display:inline-block;background:#2458e6;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600">Join ${group}</a></p>
+<p style="margin:0;font-size:12px;color:#666b75">The link works until ${escapeHtml(input.expiresOn)} and only for this email address. If you did not expect it, ignore this email.</p>
+</div></body></html>`,
+  };
+}

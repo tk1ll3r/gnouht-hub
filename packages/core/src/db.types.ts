@@ -509,6 +509,115 @@ export type Database = {
           },
         ]
       }
+      group_invites: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          created_at: string
+          email: string
+          expires_at: string
+          group_id: string
+          id: string
+          invited_by: string | null
+          revoked_at: string | null
+          token_hash: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email: string
+          expires_at: string
+          group_id: string
+          id?: string
+          invited_by?: string | null
+          revoked_at?: string | null
+          token_hash: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email?: string
+          expires_at?: string
+          group_id?: string
+          id?: string
+          invited_by?: string | null
+          revoked_at?: string | null
+          token_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "group_invites_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      group_members: {
+        Row: {
+          group_id: string
+          joined_at: string
+          role: string
+          share_busy: boolean
+          user_id: string
+        }
+        Insert: {
+          group_id: string
+          joined_at?: string
+          role?: string
+          share_busy?: boolean
+          user_id: string
+        }
+        Update: {
+          group_id?: string
+          joined_at?: string
+          role?: string
+          share_busy?: boolean
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "group_members_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      groups: {
+        Row: {
+          color: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       integration_secrets: {
         Row: {
           ciphertext: string
@@ -731,6 +840,42 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      project_shares: {
+        Row: {
+          created_at: string
+          group_id: string
+          project_id: string
+          shared_by: string
+        }
+        Insert: {
+          created_at?: string
+          group_id: string
+          project_id: string
+          shared_by?: string
+        }
+        Update: {
+          created_at?: string
+          group_id?: string
+          project_id?: string
+          shared_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_shares_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_shares_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1098,6 +1243,25 @@ export type Database = {
       }
     }
     Functions: {
+      accept_group_invite: { Args: { p_invite: string }; Returns: string }
+      create_group: {
+        Args: { p_color?: string; p_description?: string; p_name: string }
+        Returns: string
+      }
+      create_group_invite: {
+        Args: { p_days?: number; p_email: string; p_group: string }
+        Returns: string
+      }
+      group_roster: {
+        Args: { p_group: string }
+        Returns: {
+          display_name: string
+          joined_at: string
+          role: string
+          share_busy: boolean
+          user_id: string
+        }[]
+      }
       hit_rate_limit: {
         Args: { p_bucket: string; p_limit: number; p_window_seconds: number }
         Returns: boolean

@@ -1,4 +1,4 @@
-import { isoWeekdayOfKey, type DayLoad } from "@hub/core";
+import { formatClock, isoWeekdayOfKey, zonedMinutes, type DayLoad } from "@hub/core";
 
 const DAY_INITIALS = ["M", "T", "W", "T", "F", "S", "S"];
 
@@ -113,6 +113,65 @@ export function ProgressHistoryChart({ points }: { points: ProgressPoint[] }) {
       <text x={width - pad.right} y={height - 3} textAnchor="end" fontSize={7} className="fill-muted">
         {label(points.at(-1)!.day)}
       </text>
+    </svg>
+  );
+}
+
+export interface HeatDay {
+  date: string;
+  cells: { start: Date; end: Date; free: number }[];
+}
+
+/**
+ * Group availability: one row per day, one column per hour of the viewer's day, darker = more members
+ * free. Only counts are drawn; nobody's commitments are.
+ */
+export function AvailabilityHeatmap({ days, total, tz, dayStartMinutes, slotMinutes = 60 }: { days: HeatDay[]; total: number; tz: string; dayStartMinutes: number; slotMinutes?: number }) {
+  const columns = Math.max(1, ...days.flatMap((d) => d.cells.map((c) => Math.floor((zonedMinutes(c.start, tz) - dayStartMinutes) / slotMinutes) + 1)));
+  const cell = 18;
+  const gap = 2;
+  const left = 44;
+  const top = 14;
+  const width = left + columns * (cell + gap);
+  const height = top + days.length * (cell + gap);
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full max-w-3xl" role="img" aria-label={`How many of ${total} members are free, per hour, for the next week`}>
+      {Array.from({ length: columns }, (_, i) => i)
+        .filter((i) => i % 2 === 0)
+        .map((i) => (
+          <text key={i} x={left + i * (cell + gap) + cell / 2} y={9} textAnchor="middle" fontSize={7} className="fill-muted">
+            {formatClock(dayStartMinutes + i * slotMinutes).slice(0, 2)}
+          </text>
+        ))}
+      {days.map((day, row) => {
+        const y = top + row * (cell + gap);
+        const weekday = isoWeekdayOfKey(day.date);
+        return (
+          <g key={day.date}>
+            <text x={0} y={y + cell / 2 + 3} fontSize={8} className={weekday >= 6 ? "fill-muted" : "fill-text"}>
+              {DAY_INITIALS[weekday - 1]} {Number(day.date.slice(8))}/{Number(day.date.slice(5, 7))}
+            </text>
+            {day.cells.map((c) => {
+              const col = Math.floor((zonedMinutes(c.start, tz) - dayStartMinutes) / slotMinutes);
+              const ratio = total ? c.free / total : 0;
+              return (
+                <rect
+                  key={c.start.toISOString()}
+                  x={left + col * (cell + gap)}
+                  y={y}
+                  width={cell}
+                  height={cell}
+                  rx={3}
+                  className={ratio === 1 ? "fill-ok" : ratio > 0 ? "fill-accent" : "fill-surface-2"}
+                  opacity={ratio === 1 || ratio === 0 ? 1 : 0.2 + ratio * 0.6}
+                >
+                  <title>{`${day.date} ${formatClock(zonedMinutes(c.start, tz))}–${formatClock(zonedMinutes(c.end, tz) || 24 * 60)}: ${c.free}/${total} free`}</title>
+                </rect>
+              );
+            })}
+          </g>
+        );
+      })}
     </svg>
   );
 }

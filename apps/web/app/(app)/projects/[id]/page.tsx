@@ -11,7 +11,7 @@ import { Badge, Card, CardBody, CardHeader, ColorDot, EmptyState, ProgressBar } 
 import { requireUser } from "@/lib/auth";
 import { loadWorkspace } from "@/lib/data";
 import { formatDue, relativeTime } from "@/lib/format";
-import { DOCUMENT_LIST_COLUMNS, projectProgress, type ChecklistItemRow, type ProjectDocument } from "@/lib/projects";
+import { DOCUMENT_LIST_COLUMNS, loadShareLabels, projectProgress, type ChecklistItemRow, type ProjectDocument } from "@/lib/projects";
 import { cn } from "@/lib/utils";
 import { uuid } from "@/lib/validation";
 import { deleteProject } from "../actions";
@@ -83,7 +83,9 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
   const { data: project } = await supabase.from("projects").select("*").eq("id", id).maybeSingle();
   if (!project) notFound();
 
-  const ws = await loadWorkspace(supabase, user.id);
+  // Group members can open projects shared with them (RLS); they get a read-only view.
+  const isOwner = project.user_id === user.id;
+  const [ws, shareLabels] = await Promise.all([loadWorkspace(supabase, user.id), isOwner ? null : loadShareLabels(supabase, [project.id])]);
   const tz = ws.options.tz;
   const now = new Date();
   const since = addDaysToKey(zonedDateKey(now, tz), -90);
@@ -136,6 +138,7 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
           <ColorDot color={project.color} size={12} />
           <h1 className="text-xl font-semibold tracking-tight">{project.name}</h1>
           {project.status !== "active" ? <Badge>{project.status}</Badge> : null}
+          {!isOwner ? <Badge tone="accent">shared via {shareLabels?.get(project.id)?.join(", ") ?? "a group"} · read-only</Badge> : null}
           {course ? (
             <Link href={`/courses/${course.id}`}>
               <Badge tone="accent">{course.code}</Badge>
@@ -185,7 +188,11 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
                         {task.due_at ? formatDue(task.due_at, tz, now) : "No deadline"}
                         {ref.path ? ` · ${ref.path}${ref.line ? `:${ref.line}` : ""}` : ""}
                       </p>
-                      <TaskControls id={task.id} status={task.status} progress={Number(task.progress)} estimate={task.estimate_hours} />
+                      {isOwner ? (
+                        <TaskControls id={task.id} status={task.status} progress={Number(task.progress)} estimate={task.estimate_hours} />
+                      ) : task.status !== "todo" ? (
+                        <Badge className="w-fit">{STATUS_LABELS[task.status as TaskStatus]}</Badge>
+                      ) : null}
                     </li>
                   );
                 })}
@@ -297,35 +304,37 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
             )}
           </Card>
 
-          <Card>
-            <CardHeader
-              title="Settings"
-              actions={
-                <InlineAction
-                  action={deleteProject}
-                  fields={{ id: project.id }}
-                  confirm={project.source === "agent" ? "Delete? The agent re-creates it on its next sync unless you run `hub-agent project remove`." : "Delete this project?"}
-                  variant="danger"
-                >
-                  <Trash2 className="size-3.5" /> Delete
-                </InlineAction>
-              }
-            />
-            <CardBody>
-              <ProjectForm
-                project={{
-                  id: project.id,
-                  name: project.name,
-                  description: project.description,
-                  color: project.color,
-                  course_id: project.course_id,
-                  status: project.status,
-                  due_on: project.due_on,
-                }}
-                courses={courses}
+          {isOwner ? (
+            <Card>
+              <CardHeader
+                title="Settings"
+                actions={
+                  <InlineAction
+                    action={deleteProject}
+                    fields={{ id: project.id }}
+                    confirm={project.source === "agent" ? "Delete? The agent re-creates it on its next sync unless you run `hub-agent project remove`." : "Delete this project?"}
+                    variant="danger"
+                  >
+                    <Trash2 className="size-3.5" /> Delete
+                  </InlineAction>
+                }
               />
-            </CardBody>
-          </Card>
+              <CardBody>
+                <ProjectForm
+                  project={{
+                    id: project.id,
+                    name: project.name,
+                    description: project.description,
+                    color: project.color,
+                    course_id: project.course_id,
+                    status: project.status,
+                    due_on: project.due_on,
+                  }}
+                  courses={courses}
+                />
+              </CardBody>
+            </Card>
+          ) : null}
         </div>
       </div>
     </>

@@ -7,13 +7,15 @@
 - `npm run db:start` / `db:stop` / `db:reset` (re-applies migrations + `supabase/seed.sql`).
 - `node scripts/dev-env.mjs` regenerates `apps/web/.env.local` and keeps existing app secrets.
 - Mailpit (local email): http://127.0.0.1:54324. Studio: http://127.0.0.1:54323.
-- Registration is invite-only. Local seed allow-lists `owner@example.com` and `friend@example.com`.
+- Registration is invite-only. Local seed allow-lists `owner@example.com` and `friend@example.com`; anyone
+  else needs a pending group invite for their exact address.
 
 ## Production setup (once)
 
 1. **Supabase**: create project `gnouht-hub` (ap-southeast-1), then `supabase link` and `supabase db push`.
    - Auth → Hooks: enable *Before User Created* → `public.hook_before_user_created`.
-   - Auth → Email templates: paste `supabase/templates/*.html` (links go to `/auth/confirm`).
+   - Auth → Email templates: paste `supabase/templates/*.html` (links go to `/auth/confirm` and carry
+     `redirect_to`, so invitees return to their invite after signing in).
    - Auth → SMTP: Resend (`smtp.resend.com`, user `resend`, the API key), sender `noreply@gnouht.space`.
    - Auth → URL config: site `https://hub.gnouht.space`, redirect `https://hub.gnouht.space/auth/callback`.
    - Auth → MFA: enable TOTP.

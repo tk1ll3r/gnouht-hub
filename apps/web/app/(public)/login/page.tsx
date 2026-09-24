@@ -22,16 +22,10 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const error = errorKey ? (ERRORS[errorKey] ?? ERRORS.link) : null;
 
   return (
-    <Card className="w-full max-w-sm p-6">
-      <div className="mb-6 flex items-center gap-3">
-        <svg viewBox="0 0 64 64" className="size-9" aria-hidden>
-          <rect width="64" height="64" rx="14" className="fill-accent" />
-          <path d="M20 22h24M20 32h16M20 42h10" stroke="white" strokeWidth="5" strokeLinecap="round" />
-        </svg>
-        <div>
-          <h1 className="text-base font-semibold">gnouht hub</h1>
-          <p className="text-[13px] text-muted">Courses, deadlines and study groups</p>
-        </div>
+    <Card className="w-full max-w-sm p-7">
+      <div className="mb-7">
+        <h1 className="mb-2 font-hand text-[30px] leading-[3.25rem] text-accent">gnouht hub</h1>
+        <p className="text-[14px] text-muted">Your semester in one notebook: classes, deadlines, projects and study groups.</p>
       </div>
 
       {error ? (
@@ -65,7 +59,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       <MagicLinkForm next={next} />
 
       <p className="mt-6 text-[12px] leading-relaxed text-muted">
-        Registration is invite-only. Your data is protected by row-level security and never shared outside the groups you join.
+        Registration is invite-only. Nothing you add is visible to anyone else unless you share it with a group.
       </p>
     </Card>
   );

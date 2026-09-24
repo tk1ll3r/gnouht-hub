@@ -113,7 +113,7 @@ export default async function GroupPage({ params }: PageProps<"/groups/[id]">) {
                   <CalendarClock className="size-4" /> When is everyone free?
                 </span>
               }
-              description={`Next 7 days, from classes and busy calendar events of members who opted in (${opted.length} of ${roster?.length ?? 0}). Only free/busy is shared — never titles.`}
+              description={`Next 7 days, counting the classes and busy events of the ${opted.length} of ${roster?.length ?? 0} members who share their free/busy. Nobody sees what anyone else is doing.`}
               actions={
                 <form action={setShareBusy}>
                   <input type="hidden" name="group_id" value={group.id} />
@@ -127,7 +127,7 @@ export default async function GroupPage({ params }: PageProps<"/groups/[id]">) {
             />
             <CardBody>
               {limited ? (
-                <p className="text-[13px] text-warn">Too many refreshes — the overlap is recomputed again in a few minutes.</p>
+                <p className="text-[13px] text-warn">Refreshed too often. The overlap is available again in a few minutes.</p>
               ) : availability && availability.counted > 0 ? (
                 <div className="flex flex-col gap-4">
                   <AvailabilityHeatmap days={availability.grid} total={availability.counted} tz={tz} dayStartMinutes={parseClock(ws.options.dayStart)} />
@@ -150,7 +150,7 @@ export default async function GroupPage({ params }: PageProps<"/groups/[id]">) {
                       <p className="mb-1.5 text-[13px] font-medium">
                         {availability.best.threshold === availability.counted
                           ? "Everyone is free"
-                          : `No time fits everyone — best slots with ${availability.best.threshold} of ${availability.counted} free`}
+                          : `No hour fits everyone. Best slots, with ${availability.best.threshold} of ${availability.counted} free:`}
                       </p>
                       <ul className="flex flex-col gap-1 text-[13px]">
                         {availability.best.slots.map((slot) => (
@@ -217,7 +217,7 @@ export default async function GroupPage({ params }: PageProps<"/groups/[id]">) {
                         <span className="mt-1.5 flex items-center gap-2">
                           <ProgressBar value={progress.ratio} tone="ok" className="max-w-48" label={`${project.name} progress`} />
                           <span className="shrink-0 text-[12px] text-muted">
-                            {progress.basis === "checklist" ? `${progress.done}/${progress.countable}` : "no checklist"} · by {names.get(shared_by) ?? "a former member"}
+                            {progress.basis === "checklist" ? `${progress.done}/${progress.countable} done` : "no checklist"}, shared by {names.get(shared_by) ?? "a former member"}
                           </span>
                         </span>
                       </Link>

@@ -195,7 +195,10 @@ export interface AgendaEntry {
   id: string;
   kind: "class" | "event" | "study";
   title: string;
-  detail: string | null;
+  /** Course code for classes, shown next to the title. */
+  code: string | null;
+  /** Secondary facts (class type, room, location). */
+  meta: string[];
   start: Date;
   end: Date;
   allDay: boolean;
@@ -247,8 +250,9 @@ export async function buildToday(client: Client, userId: string, now: Date = new
         return {
           id: `class:${c.sessionId}:${c.date}`,
           kind: "class" as const,
-          title: course ? `${course.code} · ${course.name}` : "Class",
-          detail: [c.kind !== "lecture" ? c.kind : null, c.room].filter(Boolean).join(" · ") || null,
+          title: course?.name ?? "Class",
+          code: course?.code ?? null,
+          meta: [c.kind !== "lecture" ? c.kind : null, c.room].filter((v): v is string => Boolean(v)),
           start: c.start,
           end: c.end,
           allDay: false,
@@ -262,7 +266,8 @@ export async function buildToday(client: Client, userId: string, now: Date = new
         id: `event:${e.id}`,
         kind: "event" as const,
         title: e.title,
-        detail: e.location,
+        code: null,
+        meta: e.location ? [e.location] : [],
         start: new Date(e.starts_at),
         end: new Date(e.ends_at),
         allDay: e.all_day,
@@ -274,7 +279,8 @@ export async function buildToday(client: Client, userId: string, now: Date = new
         id: `study:${b.taskId}:${b.start.toISOString()}`,
         kind: "study" as const,
         title: `Suggested: ${taskById.get(b.taskId)?.title ?? "study block"}`,
-        detail: null,
+        code: null,
+        meta: [],
         start: b.start,
         end: b.end,
         allDay: false,
@@ -287,7 +293,9 @@ export async function buildToday(client: Client, userId: string, now: Date = new
     tz,
     ranked,
     undatedCount: undated.length,
-    agenda: agenda.filter((a) => a.kind !== "study").map((a) => ({ title: a.title, start: a.start, end: a.end, allDay: a.allDay, detail: a.detail })),
+    agenda: agenda
+      .filter((a) => a.kind !== "study")
+      .map((a) => ({ title: a.code ? `${a.code} ${a.title}` : a.title, start: a.start, end: a.end, allDay: a.allDay, detail: a.meta.join(", ") || null })),
     freeHoursToday,
     clusters,
     labelOf: (task) => task.course?.code ?? task.project?.name ?? null,

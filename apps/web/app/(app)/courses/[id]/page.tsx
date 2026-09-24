@@ -41,13 +41,13 @@ export default async function CoursePage({ params }: PageProps<"/courses/[id]">)
         <div>
           <div className="flex items-center gap-2">
             <ColorDot color={course.color} size={12} />
-            <span className="font-mono text-sm font-medium">{course.code}</span>
+            <span className="text-sm font-semibold tracking-tight">{course.code}</span>
             {course.class_code ? <span className="text-sm text-muted">{course.class_code}</span> : null}
             {course.source !== "manual" ? <Badge tone="accent">from {course.source}</Badge> : null}
           </div>
           <h1 className="mt-1 text-xl font-semibold tracking-tight">{course.name}</h1>
           <p className="mt-1 text-sm text-muted">
-            {[course.lecturer, course.room, course.credits != null ? `${course.credits} credits` : null].filter(Boolean).join(" · ") || "No details yet"}
+            {[course.lecturer, course.room, course.credits != null ? `${course.credits} credits` : null].filter(Boolean).join(", ") || "No details yet"}
           </p>
         </div>
         {course.url ? (

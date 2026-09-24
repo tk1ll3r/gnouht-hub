@@ -7,7 +7,7 @@ import { ProgressHistoryChart } from "@/components/charts";
 import { InlineAction } from "@/components/forms";
 import { ProjectForm } from "@/components/project-forms";
 import { TaskControls } from "@/components/task-forms";
-import { Badge, Card, CardBody, CardHeader, ColorDot, EmptyState, ProgressBar } from "@/components/ui";
+import { Badge, Card, CardBody, CardHeader, ColorDot, EmptyState, Meta, ProgressBar } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { loadWorkspace } from "@/lib/data";
 import { formatDue, relativeTime } from "@/lib/format";
@@ -34,7 +34,7 @@ function ItemRow({ item, showSection = false }: { item: ChecklistItemRow; showSe
       <Icon className={cn("mt-0.5 size-3.5 shrink-0", className)} aria-label={STATUS_LABELS[item.status as TaskStatus]} />
       <span className={cn("min-w-0", item.status === "done" && "text-muted", item.status === "cut" && "text-muted line-through")}>
         {item.text}
-        {showSection && item.section ? <span className="ml-1.5 text-[12px] text-muted">· {item.section}</span> : null}
+        {showSection && item.section ? <span className="ml-2 text-[12px] text-muted">{item.section}</span> : null}
       </span>
     </li>
   );
@@ -138,7 +138,7 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
           <ColorDot color={project.color} size={12} />
           <h1 className="text-xl font-semibold tracking-tight">{project.name}</h1>
           {project.status !== "active" ? <Badge>{project.status}</Badge> : null}
-          {!isOwner ? <Badge tone="accent">shared via {shareLabels?.get(project.id)?.join(", ") ?? "a group"} · read-only</Badge> : null}
+          {!isOwner ? <Badge tone="accent">Read-only, shared in {shareLabels?.get(project.id)?.join(", ") ?? "a group"}</Badge> : null}
           {course ? (
             <Link href={`/courses/${course.id}`}>
               <Badge tone="accent">{course.code}</Badge>
@@ -184,10 +184,10 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
                         {ref.hard ? <Badge tone="warn">hard deadline</Badge> : null}
                         <span className="font-medium">{task.title}</span>
                       </div>
-                      <p className="text-[12px] text-muted">
-                        {task.due_at ? formatDue(task.due_at, tz, now) : "No deadline"}
-                        {ref.path ? ` · ${ref.path}${ref.line ? `:${ref.line}` : ""}` : ""}
-                      </p>
+                      <Meta
+                        className="text-[12.5px] text-muted"
+                        items={[task.due_at ? formatDue(task.due_at, tz, now) : "No deadline", ref.path ? `${ref.path}${ref.line ? `, line ${ref.line}` : ""}` : null]}
+                      />
                       {isOwner ? (
                         <TaskControls id={task.id} status={task.status} progress={Number(task.progress)} estimate={task.estimate_hours} />
                       ) : task.status !== "todo" ? (

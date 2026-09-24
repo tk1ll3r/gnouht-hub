@@ -169,7 +169,7 @@ for (const path of [
   check(res.status === 200, `GET ${path}`, String(res.status));
   if (path === "/today") {
     check(html.includes("Lab 3: AES modes") && html.includes("Overdue"), "Today ranks the seeded deadlines");
-    check(html.includes("NT219 · Mật mã học"), "Today agenda shows today's class");
+    check(html.includes("Mật mã học") && html.includes("B1.12"), "Today agenda shows today's class");
     const csp = res.headers.get("content-security-policy") ?? "";
     check(/script-src 'self' 'nonce-/.test(csp) && csp.includes("frame-ancestors 'none'"), "strict nonce CSP header present");
     const nonce = /'nonce-([^']+)'/.exec(csp)?.[1];
@@ -192,7 +192,7 @@ for (const path of [
     check(!html.includes("private errand"), "group page never shows members' personal tasks");
     check(html.includes(invitee), "owners see pending invites");
   }
-  if (path === `/projects/${friendProject.id}`) check(html.includes("read-only") && !html.includes("Save project"), "a shared project opens read-only for members");
+  if (path === `/projects/${friendProject.id}`) check(/read-only/i.test(html) && !html.includes("Save project"), "a shared project opens read-only for members");
   if (path.startsWith("/docs?")) check(/<mark[^>]*>Hỏi<\/mark>/.test(html) && html.includes("Tiến độ đồ án"), "search finds accent-insensitive matches and highlights them");
 }
 

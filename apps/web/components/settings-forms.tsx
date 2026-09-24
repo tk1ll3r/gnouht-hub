@@ -61,10 +61,10 @@ export function PeriodsForm({ periods }: { periods: { period: number; start: str
     <ActionForm action={updatePeriods}>
       {() => (
         <>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
+          <div className="grid gap-x-8 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
             {rows.map((p) => (
               <div key={p.period} className="flex items-center gap-2 text-[13px]">
-                <span className="w-7 shrink-0 font-mono text-muted">P{p.period}</span>
+                <span className="w-11 shrink-0 text-muted">Tiết {p.period}</span>
                 <input
                   name={`p${p.period}_start`}
                   type="time"

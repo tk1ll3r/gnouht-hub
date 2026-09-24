@@ -1,10 +1,10 @@
-import { rankTasks, TIER_LABELS, type UrgencyTier } from "@hub/core";
+import { rankTasks, TIER_LABELS } from "@hub/core";
 import { ExternalLink, FileText, Trash2 } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { InlineAction } from "@/components/forms";
 import { TaskControls, TaskForm } from "@/components/task-forms";
-import { Badge, Card, CardBody, CardHeader, ColorDot, EmptyState, PageHeader } from "@/components/ui";
+import { Badge, Card, CardBody, CardHeader, ColorDot, EmptyState, Meta, PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { busyIntervals, classesBetween, loadEvents, loadProjectLabels, loadTasks, loadWorkspace, toRankable } from "@/lib/data";
 import { formatDue } from "@/lib/format";
@@ -14,7 +14,6 @@ import { deleteTask } from "./actions";
 export const metadata: Metadata = { title: "Tasks" };
 
 const VIEWS = ["open", "done", "all"] as const;
-const TIER_TONE: Record<UrgencyTier, "danger" | "warn" | "ok"> = { urgent: "danger", soon: "warn", ok: "ok" };
 
 export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
   const params = await searchParams;
@@ -76,7 +75,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         {t.course ? (
-                          <span className="inline-flex items-center gap-1 font-mono text-[12px] text-muted">
+                          <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-muted">
                             <ColorDot color={t.course.color} size={8} />
                             {t.course.code}
                           </span>
@@ -100,18 +99,18 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
                           </a>
                         ) : null}
                       </div>
-                      <p className="mt-0.5 text-[12px] text-muted">
-                        {t.dueAt ? formatDue(t.dueAt, ws.options.tz, now) : "No deadline"}
-                        {rank ? (
-                          <>
-                            {" · "}
-                            <Badge tone={TIER_TONE[rank.tier]} className="align-middle">
+                      <Meta
+                        className="mt-0.5 text-[12.5px] text-muted"
+                        items={[
+                          t.dueAt ? formatDue(t.dueAt, ws.options.tz, now) : "No deadline",
+                          rank ? (
+                            <span className={cn("font-medium", rank.overdue || rank.tier === "urgent" ? "text-danger" : rank.tier === "soon" ? "text-warn" : "text-ok")}>
                               {rank.overdue ? "Overdue" : TIER_LABELS[rank.tier]}
-                            </Badge>{" "}
-                            {rank.reason}
-                          </>
-                        ) : null}
-                      </p>
+                            </span>
+                          ) : null,
+                          rank?.reason,
+                        ]}
+                      />
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       <TaskControls id={t.id} status={t.status} progress={t.progress} estimate={t.estimateHours} />

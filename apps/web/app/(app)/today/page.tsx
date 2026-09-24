@@ -1,11 +1,11 @@
 import { formatHours, formatZoned, parseClock, TIER_LABELS, type UrgencyTier } from "@hub/core";
-import { AlertTriangle, CalendarPlus, CheckCircle2, Clock, ExternalLink } from "lucide-react";
+import { AlertTriangle, CalendarPlus, CheckCircle2, ExternalLink } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import Markdown from "react-markdown";
 import { LoadChart } from "@/components/charts";
 import { TaskControls, TaskForm } from "@/components/task-forms";
-import { Badge, ButtonLink, Card, CardBody, CardHeader, ColorDot, EmptyState } from "@/components/ui";
+import { ButtonLink, Card, CardBody, CardHeader, ColorDot, EmptyState, Meta } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { buildToday, type AgendaEntry } from "@/lib/data";
 import { formatDue } from "@/lib/format";
@@ -13,7 +13,9 @@ import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Today" };
 
-const TIER_TONE: Record<UrgencyTier, "danger" | "warn" | "ok"> = { urgent: "danger", soon: "warn", ok: "ok" };
+const TIER_TEXT: Record<UrgencyTier, string> = { urgent: "text-danger", soon: "text-warn", ok: "text-ok" };
+// Red pen for urgent, highlighter for coming up — the marks a student would make in the margin.
+const TIER_MARK: Record<UrgencyTier, string> = { urgent: "bg-danger", soon: "bg-highlight", ok: "bg-border" };
 
 function greeting(hour: number): string {
   if (hour < 5) return "Up late";
@@ -25,16 +27,16 @@ function greeting(hour: number): string {
 function AgendaRow({ item, tz }: { item: AgendaEntry; tz: string }) {
   const body = (
     <div className="flex gap-3 py-2">
-      <div className="w-[72px] shrink-0 text-right font-mono text-[12px] leading-5 text-muted">
-        {item.allDay ? "all day" : `${formatZoned(item.start, "HH:mm", tz)}`}
-        {!item.allDay ? <div className="text-[11px]">{formatZoned(item.end, "HH:mm", tz)}</div> : null}
+      <div className="w-12 shrink-0 text-right text-[12.5px] leading-5 text-muted tabular-nums">
+        {item.allDay ? "all day" : formatZoned(item.start, "HH:mm", tz)}
+        {!item.allDay ? <div className="text-[11.5px] opacity-75">{formatZoned(item.end, "HH:mm", tz)}</div> : null}
       </div>
-      <svg width="4" height="36" viewBox="0 0 4 36" className="shrink-0" aria-hidden>
-        <rect width="4" height="36" rx="2" fill={item.color} opacity={item.kind === "study" ? 0.5 : 1} />
+      <svg width="3" height="36" viewBox="0 0 3 36" className="shrink-0" aria-hidden>
+        <rect width="3" height="36" rx="1.5" fill={item.color} opacity={item.kind === "study" ? 0.45 : 1} />
       </svg>
       <div className="min-w-0">
-        <p className={cn("truncate text-sm", item.kind === "study" ? "text-ok" : "font-medium")}>{item.title}</p>
-        {item.detail ? <p className="truncate text-[12px] text-muted">{item.detail}</p> : null}
+        <p className={cn("truncate text-[14px]", item.kind === "study" ? "text-ok" : "font-medium")}>{item.title}</p>
+        <Meta className="text-[12.5px] text-muted" items={[item.code ? <span className="font-medium">{item.code}</span> : null, ...item.meta]} />
       </div>
     </div>
   );
@@ -58,6 +60,7 @@ export default async function TodayPage() {
   const name = ws.profile.display_name || user.email?.split("@")[0] || "";
   const hour = Number(formatZoned(now, "H", tz));
   const courses = ws.courses.map((c) => ({ id: c.id, code: c.code, name: c.name }));
+  const { urgent, soon } = data.brief.counts;
 
   const setup = [
     { done: Boolean(ws.semester), label: "Create your semester", href: "/courses" },
@@ -68,26 +71,23 @@ export default async function TodayPage() {
 
   return (
     <>
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-[13px] text-muted">{formatZoned(now, "EEEE, d MMMM", tz)}</p>
-          <h1 className="text-xl font-semibold tracking-tight">
-            {greeting(hour)}
-            {name ? `, ${name}` : ""}
-          </h1>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-[13px]">
-          {data.brief.counts.urgent ? <Badge tone="danger">{data.brief.counts.urgent} urgent</Badge> : null}
-          {data.brief.counts.soon ? <Badge tone="warn">{data.brief.counts.soon} coming up</Badge> : null}
-          <Badge tone="accent">
-            <Clock className="size-3" /> {formatHours(data.freeHoursToday)} free today
-          </Badge>
-        </div>
+      {/* The page head of a school notebook: the date written in ink on the ruled lines. */}
+      <header className="ruled mb-8 pb-2">
+        <h1 className="ink-in font-hand text-[28px] leading-[4rem] text-accent sm:text-[34px]">{formatZoned(now, "EEEE, d MMMM", tz)}</h1>
+        <p className="text-[15px] leading-8">
+          {greeting(hour)}
+          {name ? `, ${name}` : ""}.{" "}
+          {urgent ? <span className="font-medium text-danger">{urgent} urgent</span> : null}
+          {urgent && soon ? " and " : null}
+          {soon ? <span className="font-medium text-warn">{soon} coming up</span> : null}
+          {urgent || soon ? ". " : "Nothing pressing. "}
+          <span className="text-muted">{formatHours(data.freeHoursToday)} free for the rest of today.</span>
+        </p>
       </header>
 
       {setupPending ? (
-        <Card className="mb-6">
-          <CardHeader title="Finish setting up" description="The urgency ranking needs your timetable to know when you are free." />
+        <Card className="mb-8">
+          <CardHeader title="Finish setting up" description="Ranking needs your timetable to know when you are free." />
           <ul className="divide-y divide-border">
             {setup.map((step) => (
               <li key={step.label} className="flex items-center justify-between px-4 py-2.5 text-sm">
@@ -113,115 +113,117 @@ export default async function TodayPage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
-        <div className="flex flex-col gap-6">
-          <Card>
-            <CardHeader
-              title="Do first"
-              description="Ranked by how much work is left versus the free time before each deadline."
-              actions={
-                <ButtonLink href="/tasks" size="sm" variant="ghost">
-                  All tasks
-                </ButtonLink>
-              }
-            />
-            {focus.length === 0 ? (
+      <div className="grid gap-10 lg:grid-cols-[3fr_2fr] lg:grid-rows-[auto_1fr] lg:gap-x-8 lg:gap-y-10">
+        <section aria-labelledby="do-first" className="lg:col-start-1 lg:row-start-1">
+          <div className="mb-1 flex items-baseline justify-between gap-3">
+            <h2 id="do-first" className="text-[19px] font-semibold tracking-tight">
+              Do first
+            </h2>
+            <Link href="/tasks" className="text-[13px] text-accent hover:underline">
+              All tasks
+            </Link>
+          </div>
+          <p className="mb-3 text-[13px] text-muted">Ranked by the work left against your free time before each deadline.</p>
+
+          {focus.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border">
               <EmptyState title="Nothing urgent">
-                {ranked.length ? "Every deadline fits comfortably in your free time." : "No open deadlines. Add a task or connect Moodle."}
+                {ranked.length ? "Every deadline fits comfortably in your free time." : "No open deadlines. Add a task below or connect Moodle in Settings."}
               </EmptyState>
-            ) : (
-              <ul className="divide-y divide-border">
-                {focus.map((item) => {
-                  const task = item.task;
-                  const ref = task.row.source_ref as { url?: string } | null;
-                  return (
-                    <li key={task.id} className="flex flex-col gap-2 px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge tone={TIER_TONE[item.tier]}>{item.overdue ? "Overdue" : TIER_LABELS[item.tier]}</Badge>
-                        {task.course ? (
-                          <span className="inline-flex items-center gap-1 font-mono text-[12px] text-muted">
-                            <ColorDot color={task.course.color} size={8} /> {task.course.code}
-                          </span>
-                        ) : task.project ? (
-                          <Link href={`/projects/${task.project.id}`} className="inline-flex items-center gap-1 text-[12px] text-muted hover:text-text">
-                            <ColorDot color={task.project.color} size={8} /> {task.project.name}
-                          </Link>
-                        ) : null}
-                        <span className="font-medium">{task.title}</span>
+            </div>
+          ) : (
+            <ol className="border-t border-border">
+              {focus.map((item) => {
+                const task = item.task;
+                const ref = task.row.source_ref as { url?: string } | null;
+                const tier = item.overdue ? "urgent" : item.tier;
+                return (
+                  <li key={task.id} className="flex gap-3.5 border-b border-border py-3.5">
+                    <span aria-hidden className={cn("w-[3px] shrink-0 rounded-full", TIER_MARK[tier])} />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                      <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                        <span className={cn("text-[12.5px] font-semibold", TIER_TEXT[tier])}>{item.overdue ? "Overdue" : TIER_LABELS[item.tier]}</span>
+                        <span className="text-[16px] leading-snug font-medium">{task.title}</span>
                         {ref?.url ? (
-                          <a href={ref.url} target="_blank" rel="noopener noreferrer" className="text-muted hover:text-accent" aria-label="Open in Moodle">
+                          <a href={ref.url} target="_blank" rel="noopener noreferrer" className="self-center text-muted hover:text-accent" aria-label="Open in Moodle">
                             <ExternalLink className="size-3.5" />
                           </a>
                         ) : null}
-                      </div>
-                      <p className="text-[13px] text-muted">
-                        {task.dueAt ? <span className="text-text">{formatDue(task.dueAt, tz, now)}</span> : null} · {item.reason}
                       </p>
+                      <Meta
+                        className="text-[13px] text-muted"
+                        items={[
+                          task.course ? (
+                            <span className="inline-flex items-center gap-1.5 font-medium text-text">
+                              <ColorDot color={task.course.color} size={8} /> {task.course.code}
+                            </span>
+                          ) : task.project ? (
+                            <Link href={`/projects/${task.project.id}`} className="inline-flex items-center gap-1.5 font-medium text-text hover:text-accent">
+                              <ColorDot color={task.project.color} size={8} /> {task.project.name}
+                            </Link>
+                          ) : null,
+                          task.dueAt ? <span className="text-text">{formatDue(task.dueAt, tz, now)}</span> : null,
+                          item.reason,
+                        ]}
+                      />
                       <TaskControls id={task.id} status={task.status} progress={task.progress} estimate={task.estimateHours} />
-                    </li>
-                  );
-                })}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+          {onTrack.length ? (
+            <details className="border-b border-border">
+              <summary className="cursor-pointer py-2.5 text-[13px] text-muted hover:text-text">{onTrack.length} on track</summary>
+              <ul className="pb-2">
+                {onTrack.map((item) => (
+                  <li key={item.task.id} className="flex items-center justify-between gap-3 py-1.5 text-[14px]">
+                    <span className="min-w-0 truncate">
+                      {item.task.course ? <span className="mr-2 font-medium text-muted">{item.task.course.code}</span> : null}
+                      {item.task.title}
+                    </span>
+                    <span className="shrink-0 text-[12.5px] text-muted tabular-nums">{item.task.dueAt ? formatDue(item.task.dueAt, tz, now) : ""}</span>
+                  </li>
+                ))}
               </ul>
-            )}
-            {onTrack.length ? (
-              <details className="border-t border-border">
-                <summary className="cursor-pointer px-4 py-2.5 text-[13px] text-muted hover:text-text">
-                  {onTrack.length} on track
-                </summary>
-                <ul className="divide-y divide-border">
-                  {onTrack.map((item) => (
-                    <li key={item.task.id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
-                      <span className="min-w-0 truncate">
-                        {item.task.course ? <span className="mr-1.5 font-mono text-[12px] text-muted">{item.task.course.code}</span> : null}
-                        {item.task.title}
-                      </span>
-                      <span className="shrink-0 text-[12px] text-muted">{item.task.dueAt ? formatDue(item.task.dueAt, tz, now) : ""}</span>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            ) : null}
-            {undated.length ? (
-              <details className="border-t border-border">
-                <summary className="cursor-pointer px-4 py-2.5 text-[13px] text-muted hover:text-text">{undated.length} without a deadline</summary>
-                <ul className="divide-y divide-border">
-                  {undated.map((task) => (
-                    <li key={task.id} className="px-4 py-2 text-sm">
-                      {task.course ? <span className="mr-1.5 font-mono text-[12px] text-muted">{task.course.code}</span> : null}
-                      {task.title}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            ) : null}
-          </Card>
+            </details>
+          ) : null}
+          {undated.length ? (
+            <details className="border-b border-border">
+              <summary className="cursor-pointer py-2.5 text-[13px] text-muted hover:text-text">{undated.length} without a deadline</summary>
+              <ul className="pb-2">
+                {undated.map((task) => (
+                  <li key={task.id} className="py-1.5 text-[14px]">
+                    {task.course ? <span className="mr-2 font-medium text-muted">{task.course.code}</span> : null}
+                    {task.title}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
 
-          <Card>
-            <CardHeader title="Quick add" />
-            <CardBody>
-              <TaskForm courses={courses} projects={data.projects.map((p) => ({ id: p.id, name: p.name }))} compact />
-            </CardBody>
-          </Card>
-        </div>
+        </section>
 
-        <div className="flex flex-col gap-6">
+        {/* On phones the day's agenda comes before the form; on wide screens it is the side column. */}
+        <div className="flex flex-col gap-6 lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <Card>
             <CardHeader title="Today" description="Classes, events and suggested study blocks." />
             <CardBody className="py-1">
               {agenda.length ? (
-                <div className="divide-y divide-border">
+                <div className="divide-y divide-border/70">
                   {agenda.map((item) => (
                     <AgendaRow key={item.id} item={item} tz={tz} />
                   ))}
                 </div>
               ) : (
-                <EmptyState title="Nothing scheduled">A free day — see Do first for what to work on.</EmptyState>
+                <EmptyState title="Nothing scheduled">A free day. Start at the top of Do first.</EmptyState>
               )}
             </CardBody>
           </Card>
 
           <Card>
-            <CardHeader title="Next 14 days" description="Busy vs. free hours; dots mark deadlines." />
+            <CardHeader title="Next 14 days" description="Busy and free hours; dots mark deadlines." />
             <CardBody>
               <LoadChart days={load} windowHours={windowHours} />
               {clusters.length ? (
@@ -237,13 +239,23 @@ export default async function TodayPage() {
             </CardBody>
           </Card>
 
-          <Card>
-            <CardHeader title="Morning brief" description="Also emailed at 06:30 when digests are on." />
-            <CardBody className="prose-hub text-sm">
+          <details className="group rounded-2xl border border-border bg-surface">
+            <summary className="cursor-pointer list-none px-4 py-3 text-[14px] font-medium hover:text-accent">
+              Preview the morning email
+              <span className="block text-[12.5px] font-normal text-muted">Sent at 06:30 when digests are on in Settings.</span>
+            </summary>
+            <div className="prose-hub border-t border-border/70 px-4 py-3 text-sm">
               <Markdown>{data.brief.markdown}</Markdown>
-            </CardBody>
-          </Card>
+            </div>
+          </details>
         </div>
+
+        <section aria-labelledby="add-task" className="lg:col-start-1 lg:row-start-2 lg:self-start">
+          <h2 id="add-task" className="mb-3 text-[15px] font-semibold">
+            Add a task
+          </h2>
+          <TaskForm courses={courses} projects={data.projects.map((p) => ({ id: p.id, name: p.name }))} compact />
+        </section>
       </div>
     </>
   );

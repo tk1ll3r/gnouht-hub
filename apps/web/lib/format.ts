@@ -9,7 +9,7 @@ export function sessionLabel(session: Pick<CourseSession, "weekday" | "period_st
       : `${session.start_time?.slice(0, 5)}–${session.end_time?.slice(0, 5)}`;
   return [day, time, session.kind !== "lecture" ? session.kind : null, session.room, session.week_interval > 1 ? `every ${session.week_interval} wks` : null]
     .filter(Boolean)
-    .join(" · ");
+    .join(", ");
 }
 
 export function formatDue(iso: string | Date, tz: string, now: Date = new Date()): string {
@@ -38,4 +38,34 @@ export function relativeTime(date: Date | string, now: Date = new Date()): strin
 /** True when an ISO timestamp is within `ms` of now (kept outside components so render stays pure). */
 export function isRecent(iso: string | null | undefined, ms: number): boolean {
   return Boolean(iso) && Date.now() - new Date(iso!).getTime() < ms;
+}
+
+const AUDIT_LABELS: Record<string, string> = {
+  "auth.sign_in": "Signed in",
+  "auth.sign_out": "Signed out",
+  "device.pairing_code": "Created a device pairing code",
+  "device.pair": "Paired a device",
+  "device.revoke": "Revoked a device",
+  "integration.google.connect": "Connected Google Calendar",
+  "integration.google.disconnect": "Disconnected Google Calendar",
+  "integration.ics.connect": "Added a calendar feed",
+  "integration.ics.disconnect": "Removed a calendar feed",
+  "uit.import": "Imported courses from UIT",
+  "project.create": "A watched folder became a project",
+  "project.delete": "Deleted a project",
+  "project.share": "Shared a project with a group",
+  "project.unshare": "Stopped sharing a project",
+  "group.create": "Created a group",
+  "group.delete": "Deleted a group",
+  "group.invite": "Invited someone to a group",
+  "group.join": "Joined a group",
+  "group.leave": "Left a group",
+  "group.remove_member": "Removed a group member",
+  "group.share_busy_on": "Started sharing free/busy with a group",
+  "group.share_busy_off": "Stopped sharing free/busy with a group",
+};
+
+/** Security log entries in words, falling back to the raw action name for anything new. */
+export function auditLabel(action: string): string {
+  return AUDIT_LABELS[action] ?? action;
 }

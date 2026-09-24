@@ -6,11 +6,11 @@ import { Field, Input } from "./ui";
 
 export function ManualQuotaForm({ quota }: { quota?: { id: string; name: string; unit: string; used: number; limit_value: number; resets_on: string | null } }) {
   return (
-    <ActionForm action={saveManualQuota} resetOnSuccess={!quota} hideSuccess className="grid grid-cols-2 gap-2 sm:grid-cols-6">
+    <ActionForm action={saveManualQuota} resetOnSuccess={!quota} hideSuccess className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       {(state) => (
         <>
           {quota ? <input type="hidden" name="id" value={quota.id} /> : null}
-          <Field label="Name" htmlFor={`mq-name-${quota?.id ?? "new"}`} error={state.errors?.name} className="col-span-2">
+          <Field label="Name" htmlFor={`mq-name-${quota?.id ?? "new"}`} error={state.errors?.name} className="col-span-2 sm:col-span-4">
             <Input id={`mq-name-${quota?.id ?? "new"}`} name="name" defaultValue={quota?.name} placeholder="Kaggle GPU" required />
           </Field>
           <Field label="Used" htmlFor={`mq-used-${quota?.id ?? "new"}`} error={state.errors?.used}>
@@ -25,7 +25,7 @@ export function ManualQuotaForm({ quota }: { quota?: { id: string; name: string;
           <Field label="Resets" htmlFor={`mq-reset-${quota?.id ?? "new"}`} error={state.errors?.resets_on}>
             <Input id={`mq-reset-${quota?.id ?? "new"}`} name="resets_on" type="date" defaultValue={quota?.resets_on ?? ""} />
           </Field>
-          <div className="col-span-2 sm:col-span-6">
+          <div className="col-span-2 sm:col-span-4">
             <SubmitButton size="sm" variant={quota ? "secondary" : "primary"}>
               {quota ? "Update" : "Add quota"}
             </SubmitButton>

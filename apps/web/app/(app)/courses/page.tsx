@@ -50,7 +50,7 @@ export default async function CoursesPage() {
         title="Courses"
         description={
           <>
-            {semester.name} · {formatDateRange(semester.starts_on, semester.ends_on)}
+            {semester.name}, {formatDateRange(semester.starts_on, semester.ends_on)}
             {semester.is_current ? null : <Badge className="ml-2">not current</Badge>}
           </>
         }
@@ -72,7 +72,7 @@ export default async function CoursesPage() {
                   <CardBody className="flex h-full flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <ColorDot color={course.color} />
-                      <span className="font-mono text-[13px] font-medium">{course.code}</span>
+                      <span className="text-[13px] font-semibold tracking-tight">{course.code}</span>
                       {course.class_code ? <span className="truncate text-[12px] text-muted">{course.class_code}</span> : null}
                       {course.credits != null ? <Badge className="ml-auto">{course.credits} cr</Badge> : null}
                     </div>
@@ -81,12 +81,12 @@ export default async function CoursesPage() {
                       {sessions.length ? (
                         sessions.map((s) => <li key={s.id}>{sessionLabel(s)}</li>)
                       ) : (
-                        <li className="text-warn">No sessions yet — add the timetable</li>
+                        <li className="text-warn">No weekly sessions yet</li>
                       )}
                     </ul>
                     <div className="mt-auto flex flex-wrap items-center gap-2 pt-2 text-[12px] text-muted">
                       <span>{open.length} open task{open.length === 1 ? "" : "s"}</span>
-                      {next?.due_at ? <span>· next: {formatDue(next.due_at, tz)}</span> : null}
+                      {next?.due_at ? <span>next {formatDue(next.due_at, tz)}</span> : null}
                       {Number(course.weight) !== 1 ? <Badge tone="accent">×{Number(course.weight)}</Badge> : null}
                     </div>
                   </CardBody>
@@ -128,7 +128,7 @@ export default async function CoursesPage() {
               {ws.semesters.map((s) => (
                 <li key={s.id} className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm">
                   <span>
-                    {s.name} <span className="text-muted">· {formatDateRange(s.starts_on, s.ends_on)}</span>
+                    {s.name} <span className="ml-1 text-muted">{formatDateRange(s.starts_on, s.ends_on)}</span>
                   </span>
                   {s.is_current ? (
                     <Badge tone="ok">current</Badge>

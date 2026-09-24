@@ -2,7 +2,7 @@ import { highlightSnippet } from "@hub/core";
 import { Search } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Badge, buttonClass, Card, ColorDot, EmptyState, Input, PageHeader, Select } from "@/components/ui";
+import { Badge, buttonClass, Card, ColorDot, EmptyState, Input, Meta, PageHeader, Select } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { loadProjectOptions } from "@/lib/projects";
 import { searchSchema } from "@/lib/validation";
@@ -61,7 +61,7 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
         </Card>
       ) : hits.length === 0 ? (
         <Card>
-          <EmptyState title="No matches">Try fewer or shorter words — each word also matches as a prefix.</EmptyState>
+          <EmptyState title="No matches">Try fewer or shorter words. Each word also matches the start of longer ones.</EmptyState>
         </Card>
       ) : (
         <Card>
@@ -93,10 +93,7 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
                         ),
                       )}
                     </p>
-                    <p className="mt-1 truncate text-[12px] text-muted">
-                      {proj?.name ?? ""}
-                      {doc ? ` · ${doc.path}:${hit.line}` : ""}
-                    </p>
+                    <Meta className="mt-1 text-[12.5px] text-muted" items={[proj?.name, doc ? `${doc.path}, line ${hit.line}` : null]} />
                   </Link>
                 </li>
               );

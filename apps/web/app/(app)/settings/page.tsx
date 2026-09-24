@@ -3,11 +3,11 @@ import type { Metadata } from "next";
 import { DevicePairing } from "@/components/device-pairing";
 import { InlineAction } from "@/components/forms";
 import { IcsSourceForm, PeriodsForm, ProfileForm } from "@/components/settings-forms";
-import { Badge, buttonClass, Card, CardBody, CardHeader, EmptyState, PageHeader } from "@/components/ui";
+import { Badge, buttonClass, Card, CardBody, CardHeader, EmptyState, Meta, PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { loadWorkspace, periodsOf } from "@/lib/data";
 import { googleConfigured } from "@/lib/env";
-import { formatDue, isRecent, relativeTime } from "@/lib/format";
+import { auditLabel, formatDue, isRecent, relativeTime } from "@/lib/format";
 import { deleteSource, saveGoogleCalendars, syncSourceNow, toggleSource } from "./actions";
 import { revokeDevice } from "./device-actions";
 
@@ -45,9 +45,9 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader title="Profile & day" description="Used to compute free time and rank deadlines." />
-          <CardBody>
+        <Card className="lg:col-span-2">
+          <CardHeader title="Profile and day" description="Your productive hours decide how much free time each deadline has." />
+          <CardBody className="max-w-3xl">
             <ProfileForm
               profile={{
                 display_name: ws.profile.display_name,
@@ -61,8 +61,8 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
           </CardBody>
         </Card>
 
-        <Card>
-          <CardHeader title="Class periods (tiết)" description="Start and end time of each period. Defaults follow UIT; check them against your timetable." />
+        <Card className="lg:col-span-2">
+          <CardHeader title="Class periods" description="When each tiết starts and ends. The defaults follow UIT; check them against your timetable." />
           <CardBody>
             <PeriodsForm periods={periodsOf(ws.profile)} />
           </CardBody>
@@ -163,7 +163,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
                       </Badge>
                     ) : null}
                     <span className="text-[12px] text-muted">
-                      {device.platform} · v{device.agent_version} · {device.last_seen_at ? `seen ${relativeTime(device.last_seen_at)}` : "never seen"}
+                      <Meta items={[device.platform, device.agent_version ? `agent ${device.agent_version}` : null, device.last_seen_at ? `seen ${relativeTime(device.last_seen_at)}` : "never seen"]} />
                     </span>
                     <span className="ml-auto">
                       <InlineAction action={revokeDevice} fields={{ id: device.id }} confirm="Revoke this device? It will stop syncing immediately." variant="danger">
@@ -193,7 +193,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
             <ul className="divide-y divide-border text-[13px]">
               {auditRows.map((row) => (
                 <li key={row.id} className="flex justify-between gap-3 px-4 py-2">
-                  <span className="font-mono">{row.action}</span>
+                  <span>{auditLabel(row.action)}</span>
                   <span className="text-muted">{formatDue(row.at, tz)}</span>
                 </li>
               ))}

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DocumentMarkdown } from "@/components/markdown";
-import { Badge, Card, CardBody } from "@/components/ui";
+import { Badge, Card, CardBody, Meta } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { loadWorkspace } from "@/lib/data";
 import { formatDue } from "@/lib/format";
@@ -53,10 +53,10 @@ export default async function DocumentPage({ params }: PageProps<"/projects/[id]
           {doc.truncated ? <Badge tone="warn">truncated</Badge> : null}
           {doc.redactions ? <Badge tone="warn">{doc.redactions} secret(s) redacted</Badge> : null}
         </div>
-        <p className="mt-1 text-[12px] text-muted">
-          {doc.path} · indexed {formatDue(doc.indexed_at, ws.options.tz)}
-          {doc.modified_at ? ` · modified ${formatDue(doc.modified_at, ws.options.tz)}` : ""}
-        </p>
+        <Meta
+          className="mt-1 text-[12.5px] text-muted"
+          items={[doc.path, `indexed ${formatDue(doc.indexed_at, ws.options.tz)}`, doc.modified_at ? `edited ${formatDue(doc.modified_at, ws.options.tz)}` : null]}
+        />
         {doc.error ? <p className="mt-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{doc.error}</p> : null}
       </header>
       <Card>

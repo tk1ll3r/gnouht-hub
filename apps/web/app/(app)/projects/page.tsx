@@ -57,7 +57,7 @@ function ProjectCard({ summary, tz, now, sharedVia }: { summary: ProjectSummary;
           <p className="mt-auto text-[12px] text-muted">
             {nextDeadline?.due_at ? (
               <>
-                Next: <span className="text-text">{nextDeadline.title}</span> · {formatDue(nextDeadline.due_at, tz, now)}
+                Next: <span className="text-text">{nextDeadline.title}</span>, {formatDue(nextDeadline.due_at, tz, now)}
               </>
             ) : project.due_on ? (
               `Due ${project.due_on}`
@@ -134,16 +134,16 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
 
         <div className="flex flex-col gap-6">
           <Card>
-            <CardHeader title="Watch a folder" description="The agent indexes Markdown, Word and (optionally) PDF files." />
+            <CardHeader title="Watch a folder" description="The agent on your PC reads Markdown and Word files; add PDFs if you want them searchable." />
             <CardBody className="flex flex-col gap-2 text-[13px] text-muted">
               <p>On your PC:</p>
               <pre className="overflow-x-auto rounded-lg bg-surface-2 p-2 font-mono text-[12px] text-text">
                 hub-agent project add &quot;D:\Research\IDS&quot;{"\n"}hub-agent sync-docs
               </pre>
               <p>
-                Checklists use <code className="font-mono">[x]</code> done, <code className="font-mono">[~]</code> in progress,{" "}
-                <code className="font-mono">[!]</code> attention and <code className="font-mono">[CẮT]</code> cut. Tables with a “Hạn”/“Deadline” column and
-                items with <code className="font-mono">📅 2026-10-05</code> become deadlines. Secrets such as API keys are redacted on your PC before upload.
+                Mark items <code className="font-mono">[x]</code> done, <code className="font-mono">[~]</code> in progress, <code className="font-mono">[!]</code> needs
+                attention or <code className="font-mono">[CẮT]</code> cut. A table with a Hạn or Deadline column, or <code className="font-mono">📅 2026-10-05</code> after an
+                item, becomes a deadline. Keys and passwords are removed on your PC before anything is uploaded.
               </p>
             </CardBody>
           </Card>

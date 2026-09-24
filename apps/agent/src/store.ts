@@ -14,7 +14,7 @@ export interface SecretStore {
   delete(name: SecretName): void;
 }
 
-export type SecretName = "device-secret" | "9router-password" | "moodle-token";
+export type SecretName = "device-secret" | "9router-password" | "9router-api-key" | "moodle-token";
 
 export const keyringStore: SecretStore = {
   get: (name) => new Entry(SERVICE, name).getPassword() ?? null,
@@ -37,6 +37,8 @@ export const configSchema = z.object({
   ninerouterUrl: z.url().default("http://127.0.0.1:20128"),
   moodleUrl: z.url().default("https://courses.uit.edu.vn"),
   moodleUsername: z.string().nullable().default(null),
+  /** 9router model (or combo) used for AI jobs, e.g. "cc/claude-sonnet-4-5". */
+  aiModel: z.string().max(120).nullable().default(null),
   /** Watched project folders (`hub-agent project add`). */
   projects: z
     .array(

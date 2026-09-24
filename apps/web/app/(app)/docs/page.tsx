@@ -1,9 +1,12 @@
 import { highlightSnippet } from "@hub/core";
-import { Search } from "lucide-react";
+import { Search, Sparkles } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Badge, buttonClass, Card, ColorDot, EmptyState, Input, Meta, PageHeader, Select } from "@/components/ui";
+import { AskForm } from "@/components/ai-forms";
+import { Badge, buttonClass, Card, CardBody, CardHeader, ColorDot, EmptyState, Input, Meta, PageHeader, Select } from "@/components/ui";
+import { loadAiStatus } from "@/lib/ai";
 import { requireUser } from "@/lib/auth";
+import { relativeTime } from "@/lib/format";
 import { loadProjectOptions } from "@/lib/projects";
 import { searchSchema } from "@/lib/validation";
 
@@ -13,7 +16,11 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
   const params = await searchParams;
   const { q, project } = searchSchema.parse({ q: params.q, project: params.project });
   const { user, supabase } = await requireUser();
-  const projects = await loadProjectOptions(supabase);
+  const [projects, ai, { data: recent }] = await Promise.all([
+    loadProjectOptions(supabase),
+    loadAiStatus(supabase, user.id),
+    supabase.from("ai_jobs").select("id, question, status, created_at").eq("kind", "ask_docs").order("created_at", { ascending: false }).limit(5),
+  ]);
   const projectById = new Map(projects.map((p) => [p.id, p]));
 
   let hits: { chunk_id: number; document_id: string; project_id: string; heading: string | null; content: string; line: number }[] = [];
@@ -31,11 +38,53 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
   return (
     <>
       <PageHeader title="Search documents" description="Full-text search across every indexed project file. Accents are optional: “tien do” finds “Tiến độ”." />
+      <Card className="mb-6">
+        <CardHeader
+          title={
+            <span className="inline-flex items-center gap-1.5">
+              <Sparkles className="size-4 text-accent" /> Ask your documents
+            </span>
+          }
+          description="An answer written from the best-matching passages, with each claim linked to its file."
+        />
+        <CardBody>
+          {ai.enabled ? (
+            <>
+              <AskForm projects={projects.map((p) => ({ id: p.id, name: p.name }))} defaultProject={project} />
+              {!ai.device ? <p className="mt-2 text-[12.5px] text-warn">No agent with AI set up is online. Questions wait until it is (run hub-agent ai-setup on your PC).</p> : null}
+              {recent?.length ? (
+                <ul className="mt-4 flex flex-col gap-1 border-t border-border/70 pt-3 text-[13.5px]">
+                  {recent.map((q) => (
+                    <li key={q.id} className="flex items-baseline justify-between gap-3">
+                      <Link href={`/docs/ask/${q.id}`} className="min-w-0 truncate hover:text-accent">
+                        {q.question}
+                      </Link>
+                      <span className="shrink-0 text-[12px] text-muted">
+                        {q.status === "done" ? relativeTime(q.created_at) : q.status}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </>
+          ) : (
+            <p className="text-[13.5px] text-muted">
+              Turn on the AI assistant in{" "}
+              <Link href="/settings#ai" className="text-accent hover:underline">
+                Settings
+              </Link>{" "}
+              to ask questions. It runs through the 9router on your own PC.
+            </p>
+          )}
+        </CardBody>
+      </Card>
+
+      <h2 className="mb-3 text-[15px] font-semibold">Search</h2>
       <form method="get" action="/docs" className="mb-5 flex flex-wrap gap-2" role="search">
         <label htmlFor="docs-q" className="sr-only">
           Search
         </label>
-        <Input id="docs-q" name="q" defaultValue={q} placeholder="e.g. hạn nộp abstract" className="min-w-0 flex-1 basis-60" autoFocus maxLength={200} />
+        <Input id="docs-q" name="q" defaultValue={q} placeholder="e.g. hạn nộp abstract" className="min-w-0 flex-1 basis-60" maxLength={200} />
         <label htmlFor="docs-project" className="sr-only">
           Project
         </label>

@@ -1,10 +1,10 @@
-# Threat model (v1, milestones M1–M4)
+# Threat model (v1, milestones M1–M5)
 
 ## Assets
 
 Google refresh tokens; secret iCal URLs (Moodle export URLs embed a personal token); users' tasks,
 timetable and calendar events; project documents (M3); 9router credentials and quota (M2, which stay on the
-owner's PC); friends' data (M4).
+owner's PC); friends' data (M4); AI prompts and answers (M5).
 
 ## Trust boundaries
 
@@ -50,9 +50,14 @@ owner's PC); friends' data (M4).
 | Tampering | Members editing shared projects or sharing others' projects | Update/delete policies stay owner-only; the share insert policy requires owning the project and belonging to the group | pgTAP `050` |
 | DoS / lockout | A group losing its last owner | Trigger blocks removing the last owner while the group exists; limits of 20 groups per user, 30 members and 50 pending invites per group | pgTAP `050` |
 | Elevation | Open redirect through email links | `redirect_to` is honoured only on our own origin and its `next` still passes `safeNextPath` | Vitest `safe-redirect` |
+| Elevation | Prompt injection from a document (possibly a teammate's shared file) | Untrusted text is fenced with a random per-job marker (look-alikes stripped) under a system prompt that says data carries no instructions; the model has no tools; the agent never acts on output | Vitest `prompts` |
+| Info disclosure | Exfiltration through model output (image beacons, lure links) | Answers render without raw HTML or images, and no URL is clickable except `[n]` citations to documents the job actually retrieved; CSP `img-src 'self'` as a backstop | smoke test |
+| Tampering | Users writing arbitrary prompts to the queue | `enqueue_ai_job` is service-role only; prompts are built server-side from reads under the user's RLS | pgTAP `060` |
+| DoS / cost | Budget races and runaway usage | Per-user advisory lock around the budget check and reservation; daily token limit (reservation until actual usage arrives); at most 3 waiting jobs; 20 requests / 10 min per user | pgTAP `060` |
+| Spoofing / tampering | A rogue device answering someone else's job | Claims only return the device owner's jobs (SKIP LOCKED); only the claiming device may complete, once; output length-capped and stripped of control characters | pgTAP `060`, agent e2e |
+| Info disclosure | Stored excerpts outliving their use | Prompts are wiped when a job finishes, expires or is cancelled; jobs are deleted after 30 days; AI is off until the user consents (audited) | pgTAP `060` |
 | DoS | Huge folders or documents | 1000 files per folder, 30 folders, 4 MB text / 30 MB binary files, 120k characters and 400 chunks per document, 512 KB request bodies, capped `.pptx` decompression | Vitest, code review |
 
 ## Open items (later milestones)
 
-AI prompt injection and budget races (M5); rate limiting of user actions, MFA enforcement, ZAP scan and a
-manual pentest (M6).
+Rate limiting of user actions, MFA enforcement, ZAP scan and a manual pentest (M6).

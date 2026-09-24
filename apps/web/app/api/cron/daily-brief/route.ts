@@ -1,3 +1,4 @@
+import { enqueueBrief, loadAiStatus } from "@/lib/ai";
 import { isAuthorizedCron, unauthorized } from "@/lib/cron";
 import { buildToday } from "@/lib/data";
 import { briefToHtml, sendEmail } from "@/lib/email";
@@ -7,8 +8,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const maxDuration = 60;
 
 /**
- * Called daily at 06:30 (Asia/Ho_Chi_Minh) by pg_cron. Stores each user's heuristic brief (the AI
- * agent may later add an `ai` version) and emails it to users who opted in.
+ * Called daily at 06:30 (Asia/Ho_Chi_Minh) by pg_cron. Stores each user's heuristic brief, queues an AI
+ * version for users who opted in (their agent writes it), and emails the heuristic brief to subscribers.
  */
 export async function POST(request: Request) {
   if (!isAuthorizedCron(request)) return unauthorized();
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
   const userIds = [...new Set((semesters ?? []).map((s) => s.user_id))];
   let stored = 0;
   let emailed = 0;
+  let aiQueued = 0;
   const failures: string[] = [];
 
   for (const userId of userIds) {
@@ -31,6 +33,17 @@ export async function POST(request: Request) {
         { onConflict: "user_id,for_date,kind" },
       );
       stored++;
+
+      // A friendlier AI version is written by the user's own agent, if they opted in and one is online.
+      const ai = await loadAiStatus(admin, userId, now);
+      if (ai.enabled && ai.device) {
+        try {
+          await enqueueBrief(admin, userId, today, ai.language);
+          aiQueued++;
+        } catch (err) {
+          console.warn("AI brief not queued", err instanceof Error ? err.message : err);
+        }
+      }
 
       if (today.workspace.profile.email_digest) {
         const { data } = await admin.auth.admin.getUserById(userId);
@@ -50,5 +63,5 @@ export async function POST(request: Request) {
       console.error("daily brief failed", userId, err instanceof Error ? err.message : err);
     }
   }
-  return Response.json({ users: userIds.length, stored, emailed, failed: failures.length });
+  return Response.json({ users: userIds.length, stored, emailed, aiQueued, failed: failures.length });
 }

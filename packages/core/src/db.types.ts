@@ -35,6 +35,87 @@ export type Database = {
           },
         ]
       }
+      ai_jobs: {
+        Row: {
+          claimed_at: string | null
+          created_at: string
+          device_id: string | null
+          error: string | null
+          expires_at: string
+          finished_at: string | null
+          id: string
+          kind: string
+          max_output_tokens: number
+          messages: Json
+          model: string | null
+          output: string | null
+          question: string | null
+          reserved_tokens: number
+          sources: Json
+          status: string
+          subject_id: string | null
+          used_tokens: number | null
+          user_id: string
+        }
+        Insert: {
+          claimed_at?: string | null
+          created_at?: string
+          device_id?: string | null
+          error?: string | null
+          expires_at: string
+          finished_at?: string | null
+          id?: string
+          kind: string
+          max_output_tokens: number
+          messages: Json
+          model?: string | null
+          output?: string | null
+          question?: string | null
+          reserved_tokens: number
+          sources?: Json
+          status?: string
+          subject_id?: string | null
+          used_tokens?: number | null
+          user_id: string
+        }
+        Update: {
+          claimed_at?: string | null
+          created_at?: string
+          device_id?: string | null
+          error?: string | null
+          expires_at?: string
+          finished_at?: string | null
+          id?: string
+          kind?: string
+          max_output_tokens?: number
+          messages?: Json
+          model?: string | null
+          output?: string | null
+          question?: string | null
+          reserved_tokens?: number
+          sources?: Json
+          status?: string
+          subject_id?: string | null
+          used_tokens?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_jobs_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_jobs_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_log: {
         Row: {
           action: string
@@ -686,6 +767,8 @@ export type Database = {
       profiles: {
         Row: {
           ai_consent_at: string | null
+          ai_daily_tokens: number
+          ai_language: string
           busy_buffer_minutes: number
           created_at: string
           day_end: string
@@ -699,6 +782,8 @@ export type Database = {
         }
         Insert: {
           ai_consent_at?: string | null
+          ai_daily_tokens?: number
+          ai_language?: string
           busy_buffer_minutes?: number
           created_at?: string
           day_end?: string
@@ -712,6 +797,8 @@ export type Database = {
         }
         Update: {
           ai_consent_at?: string | null
+          ai_daily_tokens?: number
+          ai_language?: string
           busy_buffer_minutes?: number
           created_at?: string
           day_end?: string
@@ -1244,12 +1331,49 @@ export type Database = {
     }
     Functions: {
       accept_group_invite: { Args: { p_invite: string }; Returns: string }
+      cancel_ai_job: { Args: { p_job: string }; Returns: boolean }
+      claim_ai_job: {
+        Args: { p_device: string }
+        Returns: {
+          id: string
+          kind: string
+          max_output_tokens: number
+          messages: Json
+          model: string
+        }[]
+      }
+      complete_ai_job: {
+        Args: {
+          p_completion_tokens?: number
+          p_device: string
+          p_error?: string
+          p_job: string
+          p_model?: string
+          p_ok: boolean
+          p_output: string
+          p_prompt_tokens?: number
+        }
+        Returns: undefined
+      }
       create_group: {
         Args: { p_color?: string; p_description?: string; p_name: string }
         Returns: string
       }
       create_group_invite: {
         Args: { p_days?: number; p_email: string; p_group: string }
+        Returns: string
+      }
+      enqueue_ai_job: {
+        Args: {
+          p_kind: string
+          p_max_output: number
+          p_messages: Json
+          p_question?: string
+          p_sources?: Json
+          p_subject?: string
+          p_ttl_seconds: number
+          p_user: string
+        }
         Returns: string
       }
       group_roster: {
@@ -1279,7 +1403,12 @@ export type Database = {
       }
       refresh_project_stats: { Args: { p_project: string }; Returns: undefined }
       search_documents: {
-        Args: { p_limit?: number; p_project?: string; p_query: string }
+        Args: {
+          p_any?: boolean
+          p_limit?: number
+          p_project?: string
+          p_query: string
+        }
         Returns: {
           chunk_id: number
           content: string

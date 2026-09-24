@@ -13,7 +13,7 @@ encrypted integration secrets, an SSRF-safe fetcher, closed registration and an 
 |---|---|
 | `packages/core` | Pure logic: time zones, free-time intervals, UIT timetable, urgency ranking (EDF), checklist and milestone parsers, document analysis, search folding, secret redaction, briefs |
 | `apps/web` | Next.js 16 app (App Router, Server Actions, `proxy.ts`) |
-| `apps/agent` | Local Windows agent: project folders, 9router quota, UIT sync (AI jobs in M5) |
+| `apps/agent` | Local Windows agent: project folders, 9router quota, UIT sync, AI jobs |
 | `supabase` | Migrations, pgTAP tests, email templates, local config |
 | `docs` | Architecture, threat model, runbook |
 
@@ -35,6 +35,14 @@ allow-list to register, and it works only for the address it was sent to. Member
 share (read-only) and their deadlines; if they opt in, the group page shows when everyone is free, built from
 classes and busy calendar events — counts only, never what anyone is doing.
 
+## AI assistant
+
+Turn it on in Settings → AI assistant, then run `hub-agent ai-setup` on your PC with an API key from the 9router
+dashboard. The hub writes a morning note, project summaries (status, risks, next steps) and answers questions
+about your documents with citations (`/docs` → Ask). The hub builds every prompt and reserves tokens against your
+daily budget; the agent relays it to your own 9router and returns the answer. Document text is always fenced as
+data the model must not obey, answers render with no live links or images, and prompts are deleted once answered.
+
 ## Local agent (Windows)
 
 ```bash
@@ -42,6 +50,7 @@ npm run build -w @hub/agent
 node apps/agent/dist/hub-agent.mjs pair --hub https://hub.gnouht.space   # code from Settings → Devices
 node apps/agent/dist/hub-agent.mjs login-9router                          # password → Credential Manager
 node apps/agent/dist/hub-agent.mjs login-uit                              # UIT password used once, only the Moodle token is kept
+node apps/agent/dist/hub-agent.mjs ai-setup                               # 9router API key + model for AI jobs
 node apps/agent/dist/hub-agent.mjs project add "D:\Research\IDS"         # watch a project folder (Markdown + Word by default)
 node apps/agent/dist/hub-agent.mjs install-startup                        # run at logon (Startup folder, no admin)
 ```
@@ -58,8 +67,8 @@ The agent only makes outbound HTTPS requests signed with HMAC-SHA256 (timestamp 
 
 ```bash
 npm test                    # Vitest: core + web + agent
-npm run db:test             # pgTAP: RLS matrix, signup hook, projects and search, groups and sharing
+npm run db:test             # pgTAP: RLS matrix, signup hook, projects and search, groups and sharing, AI jobs
 npm run typecheck && npm run lint
 node apps/web/test/smoke.mjs   # end-to-end against the running dev server
-node apps/agent/test/e2e.mjs   # agent pairing, signed requests, quota and document sync (after the smoke test)
+node apps/agent/test/e2e.mjs   # agent pairing, signed requests, quota, document sync and AI jobs (after the smoke test)
 ```

@@ -3,10 +3,11 @@ import { hostname, platform } from "node:os";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CloudError, pairDevice } from "./cloud";
-import { cloudFor, describeSync, pushDocuments, pushQuota, pushUit, runDaemon, sendHeartbeat } from "./daemon";
+import { processJobs } from "./ai";
+import { aiRuntime, cloudFor, describeSync, pushDocuments, pushQuota, pushUit, runDaemon, sendHeartbeat } from "./daemon";
 import { checkFolderScope, DEFAULT_INCLUDE, listFolder } from "./documents";
 import { fetchMoodleToken, MoodleClient } from "./moodle";
-import { NineRouterClient } from "./ninerouter";
+import { chatCompletion, listModels, NineRouterClient } from "./ninerouter";
 import { ask, askHidden } from "./prompt";
 import { installStartup, uninstallStartup } from "./startup";
 import { configDir, keyringStore, loadConfig, saveConfig } from "./store";
@@ -16,12 +17,13 @@ const HELP = `gnouht hub agent ${AGENT_VERSION}
 
   pair [--hub URL] [--name NAME]   Link this PC to your hub with a code from Settings → Devices
   login-9router                    Store the 9router dashboard password (Credential Manager)
+  ai-setup [--model NAME]          Store a 9router API key and pick the model for AI jobs
   login-uit                        Get a Moodle token with your UIT account (password is not stored)
   project add <folder> [--name NAME] [--include GLOBS] [--exclude GLOBS]
                                    Watch a project folder (globs are comma-separated, e.g. "**/*.md,**/*.pdf")
   project list | project remove <folder|number>
   status                           Check hub, 9router and Moodle connectivity
-  push-quota | sync-uit | sync-docs
+  push-quota | sync-uit | sync-docs | run-jobs
                                    Run one sync now
   run                              Run continuously (used at logon)
   install-startup | uninstall-startup
@@ -72,6 +74,27 @@ async function main(argv: string[]): Promise<number> {
       console.log("9router login stored in Windows Credential Manager.");
       return 0;
     }
+    case "ai-setup": {
+      const apiKey = await askHidden("9router API key (Dashboard → API keys): ");
+      if (!apiKey) throw new Error("An API key is required");
+      const models = await listModels(config.ninerouterUrl, apiKey);
+      if (models.length) console.log(`Models this key can use: ${models.slice(0, 30).join(", ")}${models.length > 30 ? ", …" : ""}`);
+      const model = (flag(args, "--model") ?? (await ask(`Model for AI jobs${config.aiModel ? ` [${config.aiModel}]` : ""}: `)) ?? "").trim() || config.aiModel;
+      if (!model) throw new Error("Pick a model name from the list above");
+      // One tiny request proves the key and the model work before anything is stored.
+      await chatCompletion(config.ninerouterUrl, apiKey, { model, messages: [{ role: "user", content: "Reply with OK." }], maxTokens: 5 });
+      secrets.set("9router-api-key", apiKey);
+      saveConfig({ ...config, aiModel: model.slice(0, 120) });
+      console.log(`AI jobs will run on ${model}. Turn on the assistant in the hub under Settings → AI assistant.`);
+      return 0;
+    }
+    case "run-jobs": {
+      const ai = aiRuntime(config, secrets);
+      if (!ai) throw new Error("Run `hub-agent ai-setup` first");
+      const res = await processJobs(cloudFor(config, secrets), ai, 10);
+      console.log(`AI jobs: ${res.done} answered, ${res.failed} failed.`);
+      return 0;
+    }
     case "login-uit": {
       const username = (await ask(`UIT username (MSSV) [${config.moodleUsername ?? ""}]: `)) || config.moodleUsername || "";
       if (!username) throw new Error("A username is required");
@@ -87,8 +110,9 @@ async function main(argv: string[]): Promise<number> {
       const router = new NineRouterClient(config.ninerouterUrl, secrets.get("9router-password"));
       console.log(`9router ${config.ninerouterUrl}: ${(await router.reachable()) ? "reachable" : "unreachable"}, ${secrets.get("9router-password") ? "password stored" : "no password stored"}`);
       console.log(`moodle: ${secrets.get("moodle-token") ? "token stored" : "not connected"}`);
+      console.log(`ai: ${aiRuntime(config, secrets) ? `ready (${config.aiModel})` : "not set up (hub-agent ai-setup)"}`);
       if (config.deviceId && secrets.get("device-secret")) {
-        const res = await sendHeartbeat(cloudFor(config, secrets), router);
+        const res = await sendHeartbeat(cloudFor(config, secrets), router, undefined, aiRuntime(config, secrets));
         console.log(`hub ${config.hubUrl}: paired as "${config.deviceName}" — heartbeat ok (${JSON.stringify(res.intervals)})`);
       } else {
         console.log(`hub ${config.hubUrl}: not paired`);
@@ -171,7 +195,7 @@ async function main(argv: string[]): Promise<number> {
       console.log("Removed from startup.");
       return 0;
     case "logout":
-      for (const name of ["device-secret", "9router-password", "moodle-token"] as const) secrets.delete(name);
+      for (const name of ["device-secret", "9router-password", "9router-api-key", "moodle-token"] as const) secrets.delete(name);
       saveConfig({ ...config, deviceId: null, deviceName: "" });
       console.log("Forgot the device and every stored secret. Also revoke the device in Settings → Devices.");
       return 0;

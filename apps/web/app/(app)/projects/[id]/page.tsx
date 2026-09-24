@@ -3,11 +3,14 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, Circle, CircleDot, FileText, Fo
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AiAnswer } from "@/components/ai-answer";
+import { JobWatcher, SummarizeButton } from "@/components/ai-forms";
 import { ProgressHistoryChart } from "@/components/charts";
 import { InlineAction } from "@/components/forms";
 import { ProjectForm } from "@/components/project-forms";
 import { TaskControls } from "@/components/task-forms";
 import { Badge, Card, CardBody, CardHeader, ColorDot, EmptyState, Meta, ProgressBar } from "@/components/ui";
+import { loadAiStatus } from "@/lib/ai";
 import { requireUser } from "@/lib/auth";
 import { loadWorkspace } from "@/lib/data";
 import { formatDue, relativeTime } from "@/lib/format";
@@ -85,7 +88,20 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
 
   // Group members can open projects shared with them (RLS); they get a read-only view.
   const isOwner = project.user_id === user.id;
-  const [ws, shareLabels] = await Promise.all([loadWorkspace(supabase, user.id), isOwner ? null : loadShareLabels(supabase, [project.id])]);
+  const [ws, shareLabels, ai, { data: summaries }] = await Promise.all([
+    loadWorkspace(supabase, user.id),
+    isOwner ? null : loadShareLabels(supabase, [project.id]),
+    loadAiStatus(supabase, user.id),
+    supabase
+      .from("ai_jobs")
+      .select("id, status, output, finished_at, created_at")
+      .eq("subject_id", id)
+      .eq("kind", "project_summary")
+      .order("created_at", { ascending: false })
+      .limit(5),
+  ]);
+  const pendingSummary = summaries?.find((j) => j.status === "queued" || j.status === "running");
+  const lastSummary = summaries?.find((j) => j.status === "done" && j.output);
   const tz = ws.options.tz;
   const now = new Date();
   const since = addDaysToKey(zonedDateKey(now, tz), -90);
@@ -247,6 +263,25 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
         </div>
 
         <div className="flex flex-col gap-6">
+          {ai.enabled ? (
+            <Card>
+              <CardHeader
+                title="AI summary"
+                description={lastSummary?.finished_at ? `Written ${relativeTime(lastSummary.finished_at, now)} from the checklists and deadlines.` : "Status, risks and next steps, from the checklists and deadlines."}
+                actions={pendingSummary ? null : <SummarizeButton projectId={project.id} label={lastSummary ? "Update" : "Summarize"} />}
+              />
+              <CardBody>
+                {pendingSummary ? (
+                  <div className="text-[13.5px] text-muted">
+                    {pendingSummary.status === "queued" ? "Waiting for the agent on your PC…" : "Your PC is writing the summary…"}
+                    <JobWatcher jobId={pendingSummary.id} />
+                  </div>
+                ) : null}
+                {lastSummary?.output ? <AiAnswer output={lastSummary.output} className="text-[14px]" /> : !pendingSummary ? <p className="text-[13.5px] text-muted">No summary yet.</p> : null}
+              </CardBody>
+            </Card>
+          ) : null}
+
           {history.length ? (
             <Card>
               <CardHeader title="Progress over time" description="Checklist completion at each day’s last sync." />

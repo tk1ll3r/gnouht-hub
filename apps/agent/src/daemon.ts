@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { processJobs, type AiRuntime } from "./ai";
 import { CloudClient, CloudError } from "./cloud";
 import { HashCache, syncAllFolders, type FolderSyncResult } from "./docsync";
 import type { WatchedFolder } from "./documents";
@@ -29,14 +30,21 @@ export interface DocumentsStatus {
   errors: string[];
 }
 
-export async function sendHeartbeat(cloud: CloudClient, router: NineRouterClient, documents?: DocumentsStatus) {
+export async function sendHeartbeat(cloud: CloudClient, router: NineRouterClient, documents?: DocumentsStatus, ai?: AiRuntime | null) {
   const reachable = await router.reachable();
   const loggedIn = reachable ? await router.login().catch(() => false) : false;
   return cloud.post<{ intervals?: Partial<typeof DEFAULT_INTERVALS> }>("/api/agent/heartbeat", {
     agentVersion: AGENT_VERSION,
     ninerouter: { reachable, loggedIn },
     ...(documents ? { documents } : {}),
+    ai: { configured: Boolean(ai), model: ai?.model ?? null },
   });
+}
+
+/** AI jobs need both a 9router API key (Credential Manager) and a model name (config). */
+export function aiRuntime(config: AgentConfig, secrets: SecretStore): AiRuntime | null {
+  const apiKey = secrets.get("9router-api-key");
+  return apiKey && config.aiModel ? { ninerouterUrl: config.ninerouterUrl, apiKey, model: config.aiModel } : null;
 }
 
 export async function pushQuota(cloud: CloudClient, router: NineRouterClient) {
@@ -66,7 +74,7 @@ export function describeSync(results: FolderSyncResult[]): string {
     .join("; ");
 }
 
-const DEFAULT_INTERVALS = { heartbeatSeconds: 60, quotaSeconds: 300, uitSeconds: 6 * 3600, documentsSeconds: 600 };
+const DEFAULT_INTERVALS = { heartbeatSeconds: 60, quotaSeconds: 300, uitSeconds: 6 * 3600, documentsSeconds: 600, jobsSeconds: 10 };
 
 /** Debounced file watching: a change marks the folders dirty and a sync follows a few seconds later. */
 async function watchFolders(folders: WatchedFolder[], onChange: () => void, log: Logger): Promise<() => Promise<void>> {
@@ -90,7 +98,7 @@ async function watchFolders(folders: WatchedFolder[], onChange: () => void, log:
 
 /**
  * Long-running loop: heartbeat every minute, quota every 5 minutes, documents every 10 minutes (and a few
- * seconds after a watched file changes), UIT every 6 hours. Failures are logged and retried on the next
+ * seconds after a watched file changes), AI jobs every 10 seconds when set up, UIT every 6 hours. Failures are logged and retried on the next
  * tick; a revoked device (401) stops the agent instead of hammering the hub.
  */
 export async function runDaemon(config: AgentConfig, secrets: SecretStore, log: Logger = consoleLogger, signal?: AbortSignal): Promise<void> {
@@ -99,7 +107,8 @@ export async function runDaemon(config: AgentConfig, secrets: SecretStore, log: 
   const moodleToken = secrets.get("moodle-token");
   const moodle = moodleToken ? new MoodleClient(config.moodleUrl, moodleToken) : null;
   const intervals = { ...DEFAULT_INTERVALS };
-  const last = { heartbeat: 0, quota: 0, uit: 0, documents: 0 };
+  const last = { heartbeat: 0, quota: 0, uit: 0, documents: 0, jobs: 0 };
+  const ai = aiRuntime(config, secrets);
   const cache = documentCache();
   const docStatus: DocumentsStatus = { folders: config.projects.length, lastSyncAt: null, errors: [] };
   let changedAt = 0;
@@ -118,7 +127,8 @@ export async function runDaemon(config: AgentConfig, secrets: SecretStore, log: 
         if (now - last[key] < seconds * 1000) return;
         last[key] = now;
         try {
-          log.info(await task());
+          const message = await task();
+          if (message) log.info(message);
         } catch (err) {
           if (err instanceof CloudError && err.status === 401 && /unauthorized/.test(err.message)) throw err;
           log.warn(`${key}: ${err instanceof Error ? err.message : String(err)}`);
@@ -126,7 +136,7 @@ export async function runDaemon(config: AgentConfig, secrets: SecretStore, log: 
       };
       try {
         await due("heartbeat", intervals.heartbeatSeconds, async () => {
-          const res = await sendHeartbeat(cloud, router, docStatus);
+          const res = await sendHeartbeat(cloud, router, docStatus, ai);
           if (res.intervals) Object.assign(intervals, res.intervals);
           return "heartbeat ok";
         });
@@ -141,6 +151,12 @@ export async function runDaemon(config: AgentConfig, secrets: SecretStore, log: 
             docStatus.lastSyncAt = new Date().toISOString();
             docStatus.errors = results.flatMap((r) => r.errors).slice(0, 10);
             return `documents synced — ${describeSync(results)}`;
+          });
+        }
+        if (ai) {
+          await due("jobs", intervals.jobsSeconds, async () => {
+            const res = await processJobs(cloud, ai);
+            return res.done || res.failed ? `AI jobs: ${res.done} answered, ${res.failed} failed` : "";
           });
         }
         if (moodle) {

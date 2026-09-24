@@ -63,6 +63,8 @@ const AUDIT_LABELS: Record<string, string> = {
   "group.remove_member": "Removed a group member",
   "group.share_busy_on": "Started sharing free/busy with a group",
   "group.share_busy_off": "Stopped sharing free/busy with a group",
+  "ai.enable": "Turned on the AI assistant",
+  "ai.disable": "Turned off the AI assistant",
 };
 
 /** Security log entries in words, falling back to the raw action name for anything new. */

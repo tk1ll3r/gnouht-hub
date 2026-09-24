@@ -7,6 +7,7 @@ export * from "./documents";
 export * from "./hash";
 export * from "./intervals";
 export * from "./markdown";
+export * from "./prompts";
 export * from "./redact";
 export * from "./search";
 export * from "./tasks";

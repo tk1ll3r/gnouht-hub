@@ -3,6 +3,7 @@ import { AlertTriangle, CalendarPlus, CheckCircle2, ExternalLink } from "lucide-
 import type { Metadata } from "next";
 import Link from "next/link";
 import Markdown from "react-markdown";
+import { AiAnswer } from "@/components/ai-answer";
 import { LoadChart } from "@/components/charts";
 import { TaskControls, TaskForm } from "@/components/task-forms";
 import { ButtonLink, Card, CardBody, CardHeader, ColorDot, EmptyState, Meta } from "@/components/ui";
@@ -52,6 +53,7 @@ function AgendaRow({ item, tz }: { item: AgendaEntry; tz: string }) {
 export default async function TodayPage() {
   const { user, supabase } = await requireUser();
   const data = await buildToday(supabase, user.id);
+  const { data: aiNote } = await supabase.from("briefs").select("markdown, created_at").eq("user_id", user.id).eq("for_date", data.todayKey).eq("kind", "ai").maybeSingle();
   const { workspace: ws, ranked, undated, agenda, load, clusters, now } = data;
   const tz = ws.options.tz;
   const focus = ranked.filter((r) => r.tier !== "ok");
@@ -207,6 +209,14 @@ export default async function TodayPage() {
 
         {/* On phones the day's agenda comes before the form; on wide screens it is the side column. */}
         <div className="flex flex-col gap-6 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+          {aiNote ? (
+            <Card>
+              <CardHeader title="Morning note" description={`Written by AI at ${formatZoned(new Date(aiNote.created_at), "HH:mm", tz)} from your plan for today.`} />
+              <CardBody>
+                <AiAnswer output={aiNote.markdown} className="text-[14px]" />
+              </CardBody>
+            </Card>
+          ) : null}
           <Card>
             <CardHeader title="Today" description="Classes, events and suggested study blocks." />
             <CardBody className="py-1">

@@ -118,6 +118,25 @@ const { data: docId } = await admin.rpc("ingest_document", {
 await admin.rpc("refresh_project_stats", { p_project: project.id });
 check(Boolean(docId), "a document can be ingested for the owner's project");
 
+// AI results as the agent would leave them (the agent e2e covers the round trip itself).
+await admin.from("ai_jobs").delete().eq("user_id", ownerId);
+await admin.from("profiles").update({ ai_consent_at: new Date().toISOString(), ai_daily_tokens: 150000 }).eq("id", ownerId);
+const aiBase = { user_id: ownerId, status: "done", messages: [], max_output_tokens: 800, reserved_tokens: 900, used_tokens: 420, expires_at: hours(1), finished_at: new Date().toISOString(), model: "cc/fake" };
+const { data: askJob } = await admin
+  .from("ai_jobs")
+  .insert({
+    ...aiBase,
+    kind: "ask_docs",
+    question: "Khi nào hỏi thầy về dữ liệu?",
+    output: "Cần hỏi thầy trước hạn nộp abstract [1]. [Bấm vào đây](https://evil.example/steal) ![x](https://evil.example/pixel.png)",
+    sources: [{ n: 1, chunkId: 1, documentId: docId, projectId: project.id, title: "Tiến độ đồ án", path: "tien-do.md", line: 1 }],
+  })
+  .select("id")
+  .single();
+await admin.from("ai_jobs").insert({ ...aiBase, kind: "project_summary", subject_id: project.id, output: "**Status** Đang đúng tiến độ." });
+const todayVn = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
+await admin.from("briefs").upsert({ user_id: ownerId, for_date: todayVn, kind: "ai", headline: "Hôm nay làm Lab 3 trước.", markdown: "Hôm nay làm Lab 3 trước." }, { onConflict: "user_id,for_date,kind" });
+
 // Groups: the owner and a friend share free/busy; the friend shares a project with the owner.
 await admin.from("groups").delete().eq("created_by", ownerId);
 const friendEmail = "friend@example.com";
@@ -160,6 +179,7 @@ for (const path of [
   `/projects/${project.id}`,
   `/projects/${project.id}/docs/${docId}`,
   "/docs?q=hoi+thay",
+  `/docs/ask/${askJob.id}`,
   "/groups",
   `/groups/${group.id}`,
   `/projects/${friendProject.id}`,
@@ -193,6 +213,13 @@ for (const path of [
     check(html.includes(invitee), "owners see pending invites");
   }
   if (path === `/projects/${friendProject.id}`) check(/read-only/i.test(html) && !html.includes("Save project"), "a shared project opens read-only for members");
+  if (path === "/today") check(html.includes("Morning note") && html.includes("Hôm nay làm Lab 3 trước."), "Today shows the AI morning note");
+  if (path === `/projects/${project.id}`) check(html.includes("AI summary") && html.includes("Đang đúng tiến độ."), "project page shows the latest AI summary");
+  if (path === "/settings") check(html.includes("AI assistant") && html.includes("840 of 150,000 tokens"), "Settings shows AI usage against the budget");
+  if (path.startsWith("/docs/ask/")) {
+    check(html.includes(`href="/projects/${project.id}/docs/${docId}"`) && html.includes("[<!-- -->1<!-- -->]"), "AI answers link citations to the cited document");
+    check(!html.includes('href="https://evil.example') && !/<img[^>]+evil\.example/.test(html), "links and images in AI output are never live");
+  }
   if (path.startsWith("/docs?")) check(/<mark[^>]*>Hỏi<\/mark>/.test(html) && html.includes("Tiến độ đồ án"), "search finds accent-insensitive matches and highlights them");
 }
 
@@ -205,12 +232,25 @@ if (other?.user) {
   const html = await res.text();
   check(res.status === 404 && !html.includes("Secret"), "someone else's course returns 404", String(res.status));
   const { data: foreignProject } = await admin.from("projects").insert({ user_id: other.user.id, name: "Hidden project" }).select().single();
+  const { data: foreignJob } = await admin
+    .from("ai_jobs")
+    .insert({ user_id: other.user.id, kind: "ask_docs", status: "done", question: "secret question", output: "secret answer", messages: [], max_output_tokens: 100, reserved_tokens: 100, expires_at: hours(1) })
+    .select("id")
+    .single();
+  check((await get(`/api/ai/jobs/${foreignJob.id}`)).status === 404, "someone else's AI job is not visible");
+  const foreignAnswer = await get(`/docs/ask/${foreignJob.id}`);
+  check(foreignAnswer.status === 404 && !(await foreignAnswer.text()).includes("secret answer"), "someone else's AI answer page is a 404");
   const groupRes = await get(`/groups/${foreignGroup.id}`);
   check(groupRes.status === 404 && !(await groupRes.text()).includes("Not my group"), "a group you are not in returns 404", String(groupRes.status));
   const projectRes = await get(`/projects/${foreignProject.id}`);
   check(projectRes.status === 404 && !(await projectRes.text()).includes("Hidden project"), "someone else's project returns 404", String(projectRes.status));
   await admin.auth.admin.deleteUser(other.user.id);
 }
+
+// AI job status route: owner only.
+const jobStatus = await get(`/api/ai/jobs/${askJob.id}`);
+check(jobStatus.status === 200 && (await jobStatus.json()).status === "done", "owners can poll their AI job");
+check((await fetch(`${APP}/api/ai/jobs/${askJob.id}`)).status === 401, "the AI job route needs a session");
 
 // Invite landing page: public, but only the invited address can accept.
 const inviteAnon = await fetch(`${APP}/invite/${inviteToken}`);

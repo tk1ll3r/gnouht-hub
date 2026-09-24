@@ -153,3 +153,52 @@ export function normalizeStats(payload: unknown, day: string): UsageRow[] {
 export function localDay(now: Date, tz = "Asia/Ho_Chi_Minh"): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 }
+
+export interface ChatResult {
+  content: string;
+  model: string | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+}
+
+/** OpenAI-compatible chat call to the local 9router with a dashboard-issued API key. */
+export async function chatCompletion(
+  baseUrl: string,
+  apiKey: string,
+  body: { model: string; messages: { role: string; content: string }[]; maxTokens: number },
+  fetchImpl: typeof fetch = fetch,
+): Promise<ChatResult> {
+  const res = await fetchImpl(new URL("/v1/chat/completions", baseUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ model: body.model, messages: body.messages, max_tokens: body.maxTokens, temperature: 0.3, stream: false }),
+    signal: AbortSignal.timeout(180_000),
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    choices?: { message?: { content?: unknown } }[];
+    usage?: { prompt_tokens?: unknown; completion_tokens?: unknown };
+    model?: unknown;
+    error?: { message?: unknown } | string;
+  };
+  if (!res.ok) {
+    const message = typeof json.error === "string" ? json.error : typeof json.error?.message === "string" ? json.error.message : `HTTP ${res.status}`;
+    throw new Error(`9router: ${message}`.slice(0, 280));
+  }
+  const raw = json.choices?.[0]?.message?.content;
+  const content = typeof raw === "string" ? raw : "";
+  return {
+    // Reasoning models may prefix their answer with a thinking block; only the answer is returned.
+    content: content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim(),
+    model: str(json.model),
+    promptTokens: num(json.usage?.prompt_tokens),
+    completionTokens: num(json.usage?.completion_tokens),
+  };
+}
+
+/** Model ids the key may use (`GET /v1/models`), for `hub-agent ai-setup`. */
+export async function listModels(baseUrl: string, apiKey: string, fetchImpl: typeof fetch = fetch): Promise<string[]> {
+  const res = await fetchImpl(new URL("/v1/models", baseUrl), { headers: { authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) throw new Error(`9router rejected the API key (HTTP ${res.status})`);
+  const json = (await res.json().catch(() => ({}))) as { data?: { id?: unknown }[] };
+  return (json.data ?? []).flatMap((m) => (typeof m.id === "string" ? [m.id] : []));
+}

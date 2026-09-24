@@ -78,6 +78,8 @@ export const heartbeatSchema = z.object({
       errors: z.array(z.string().max(200)).max(10),
     })
     .optional(),
+  /** Whether this agent can run AI jobs (9router API key and model configured). */
+  ai: z.object({ configured: z.boolean(), model: z.string().max(120).nullable() }).optional(),
 });
 
 const finiteOrNull = z.number().finite().nullable();
@@ -187,6 +189,36 @@ export const documentUploadSchema = z.object({
     .max(50),
 });
 export type DocumentUpload = z.infer<typeof documentUploadSchema>;
+
+// ── AI jobs ─────────────────────────────────────────────────────────────────
+
+export const AI_JOB_KINDS = ["brief", "project_summary", "ask_docs"] as const;
+
+/** A job as handed to the agent: messages built by the hub, relayed verbatim to 9router. */
+export const aiJobSchema = z.object({
+  id: z.uuid(),
+  kind: z.enum(AI_JOB_KINDS),
+  messages: z
+    .array(z.object({ role: z.enum(["system", "user"]), content: z.string().min(1).max(60_000) }))
+    .min(1)
+    .max(8),
+  maxOutputTokens: z.number().int().min(64).max(4096),
+  model: z.string().max(120).nullable(),
+});
+export type AiJob = z.infer<typeof aiJobSchema>;
+export const aiClaimResponseSchema = z.object({ job: aiJobSchema.nullable() });
+
+export const aiResultSchema = z.object({
+  jobId: z.uuid(),
+  ok: z.boolean(),
+  output: z.string().max(20_000),
+  usage: z
+    .object({ promptTokens: z.number().int().min(0).max(10_000_000), completionTokens: z.number().int().min(0).max(10_000_000) })
+    .nullable(),
+  model: z.string().max(120).nullable(),
+  error: z.string().max(300).nullable(),
+});
+export type AiResult = z.infer<typeof aiResultSchema>;
 
 /** Masks an email-like label: "nguyenvana@gmail.com" → "ng…@gmail.com". */
 export function maskLabel(label: string): string {

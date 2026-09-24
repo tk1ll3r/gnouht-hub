@@ -49,13 +49,23 @@ const run = (...args) =>
     child.on("close", (status) => resolveRun({ status, stdout, stderr }));
   });
 
-// Fake 9router with one Claude account.
-const fake = createServer((req, res) => {
+// Fake 9router with one Claude account and an OpenAI-compatible chat endpoint.
+const chatRequests = [];
+const fake = createServer(async (req, res) => {
   const json = (status, body, headers = {}) => {
     res.writeHead(status, { "content-type": "application/json", ...headers });
     res.end(JSON.stringify(body));
   };
   if (req.url === "/api/health") return json(200, { ok: true });
+  if (req.url?.startsWith("/v1/")) {
+    if (req.headers.authorization !== "Bearer fake-api-key") return json(401, { error: { message: "invalid api key" } });
+    if (req.url === "/v1/models") return json(200, { data: [{ id: "cc/fake-model" }] });
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const body = JSON.parse(raw);
+    chatRequests.push(body);
+    return json(200, { model: body.model, choices: [{ message: { content: "Hạn nộp abstract là 02/10 [1]." } }], usage: { prompt_tokens: 321, completion_tokens: 12 } });
+  }
   if (req.url === "/api/auth/login") return json(200, {}, { "set-cookie": "auth_token=fake; Path=/; HttpOnly" });
   if (req.headers.cookie !== "auth_token=fake") return json(401, {});
   if (req.url === "/api/providers") return json(200, { connections: [{ id: "conn-claude", provider: "claude", email: "tester@gmail.com", isActive: true }] });
@@ -179,6 +189,37 @@ try {
   check(remove.status === 0, "project remove stops watching");
   await admin.from("projects").delete().eq("id", project.id);
   rmSync(docsDir, { recursive: true, force: true });
+
+  // AI jobs: the hub queues a job, the agent relays it to 9router and returns the answer.
+  writeFileSync(join(home, "config.json"), JSON.stringify({ ...JSON.parse(readFileSync(join(home, "config.json"), "utf8")), aiModel: "cc/fake-model" }));
+  new Entry("gnouht-hub-agent", "9router-api-key").setPassword("fake-api-key");
+  await admin.from("profiles").update({ ai_consent_at: new Date().toISOString(), ai_daily_tokens: 100000 }).eq("id", ownerId);
+  // Start from an empty queue (the daily-brief cron in the smoke test may have queued a morning note).
+  await admin.from("ai_jobs").delete().eq("user_id", ownerId);
+  const messages = [
+    { role: "system", content: "rules for the model" },
+    { role: "user", content: '<data n=1 id="x">Hạn nộp abstract: 02/10</data id="x">\n\nQuestion: khi nào nộp abstract?' },
+  ];
+  const { data: jobId, error: queueError } = await admin.rpc("enqueue_ai_job", { p_user: ownerId, p_kind: "ask_docs", p_messages: messages, p_max_output: 800, p_ttl_seconds: 600, p_question: "khi nào nộp abstract?" });
+  check(!queueError && Boolean(jobId), "the hub queues an AI job for a consenting user", queueError?.message);
+  const aiStatus = await run("status");
+  check(/ai: ready \(cc\/fake-model\)/.test(aiStatus.stdout), "status reports the AI setup");
+  const jobs = await run("run-jobs");
+  check(jobs.status === 0 && /1 answered/.test(jobs.stdout), "run-jobs claims and answers the job", jobs.stdout.trim() || jobs.stderr.trim());
+  check(chatRequests.length === 1 && JSON.stringify(chatRequests[0].messages) === JSON.stringify(messages) && chatRequests[0].model === "cc/fake-model",
+    "the agent relays the hub's messages to 9router unchanged");
+  const { data: finished } = await admin.from("ai_jobs").select("status, output, used_tokens, messages, device_id").eq("id", jobId).single();
+  check(finished?.status === "done" && finished.output === "Hạn nộp abstract là 02/10 [1]." && finished.used_tokens === 333 && JSON.stringify(finished.messages) === "[]" && finished.device_id === config.deviceId,
+    "the answer and real token usage are stored and the prompt is wiped", JSON.stringify(finished));
+  const idle = await run("run-jobs");
+  check(/0 answered/.test(idle.stdout), "with nothing queued the agent does nothing");
+  const replayComplete = await fetch(`${APP}/api/agent/jobs/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...signedHeaders(config.deviceId, secret, "POST", "/api/agent/jobs/complete", JSON.stringify({ jobId, ok: true, output: "overwritten", usage: null, model: null, error: null })) },
+    body: JSON.stringify({ jobId, ok: true, output: "overwritten", usage: null, model: null, error: null }),
+  });
+  check(replayComplete.status === 409, "a finished job cannot be overwritten", String(replayComplete.status));
+  new Entry("gnouht-hub-agent", "9router-api-key").deletePassword();
 
   // Revocation stops the agent.
   await admin.from("devices").delete().eq("id", config.deviceId);

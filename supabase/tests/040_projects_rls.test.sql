@@ -1,7 +1,7 @@
 -- Projects and indexed documents: owner-only reads, server-only writes to derived tables,
 -- accent-insensitive search that respects RLS, and owner consistency across tasks ↔ projects.
 begin;
-select plan(28);
+select plan(30);
 
 select tests.create_user('e0000000-0000-0000-0000-00000000000e', 'erin@example.com');
 select tests.create_user('f0000000-0000-0000-0000-00000000000f', 'frank@example.com');
@@ -51,6 +51,9 @@ select is((select count(*)::int from public.search_documents('thao lu')), 1, 'se
 select is((select count(*)::int from public.search_documents('abstract', 'e1000000-0000-0000-0000-000000000001')), 1, 'search can be scoped to a project');
 select lives_ok($$select * from public.search_documents($q$foo & | ! ' :* <-> (bar$q$)$$, 'tsquery operators in the query cannot break the search');
 select is((select count(*)::int from public.search_documents('***')), 0, 'a query without words returns nothing');
+select is((select count(*)::int from public.search_documents('Việc gì cần làm trước hạn nộp abstract?')), 0, 'the search box requires every word');
+select is((select count(*)::int from public.search_documents('Việc gì cần làm trước hạn nộp abstract?', null, 30, true)), 1,
+  'question retrieval matches any word');
 select lives_ok($$insert into public.tasks (title, project_id) values ('Draft outline', 'e1000000-0000-0000-0000-000000000001')$$,
   'owner links a manual task to her project');
 select throws_ok($$select public.refresh_project_stats('e1000000-0000-0000-0000-000000000001')$$, '42501', null,

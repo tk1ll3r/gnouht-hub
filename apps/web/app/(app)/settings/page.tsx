@@ -1,9 +1,11 @@
-import { CalendarDays, Link2, Monitor, RefreshCw, Shield } from "lucide-react";
+import { CalendarDays, Link2, Monitor, RefreshCw, Shield, Sparkles } from "lucide-react";
 import type { Metadata } from "next";
+import { AiSettingsForm } from "@/components/ai-forms";
 import { DevicePairing } from "@/components/device-pairing";
 import { InlineAction } from "@/components/forms";
 import { IcsSourceForm, PeriodsForm, ProfileForm } from "@/components/settings-forms";
-import { Badge, buttonClass, Card, CardBody, CardHeader, EmptyState, Meta, PageHeader } from "@/components/ui";
+import { Badge, buttonClass, Card, CardBody, CardHeader, EmptyState, Meta, PageHeader, ProgressBar } from "@/components/ui";
+import { loadAiStatus } from "@/lib/ai";
 import { requireUser } from "@/lib/auth";
 import { loadWorkspace, periodsOf } from "@/lib/data";
 import { googleConfigured } from "@/lib/env";
@@ -26,10 +28,12 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const params = await searchParams;
   const { user, supabase } = await requireUser();
   const ws = await loadWorkspace(supabase, user.id);
-  const [{ data: sources }, { data: auditRows }, { data: devices }] = await Promise.all([
+  const [{ data: sources }, { data: auditRows }, { data: devices }, ai, { data: aiJobs }] = await Promise.all([
     supabase.from("calendar_sources").select("*").order("created_at"),
     supabase.from("audit_log").select("id, at, action, entity, meta").order("at", { ascending: false }).limit(10),
     supabase.from("devices").select("id, name, platform, agent_version, status, last_seen_at").order("created_at"),
+    loadAiStatus(supabase, user.id),
+    supabase.from("ai_jobs").select("id, kind, status, used_tokens, reserved_tokens, created_at, error").order("created_at", { ascending: false }).limit(8),
   ]);
   const noticeKey = typeof params.connected === "string" ? params.connected : typeof params.error === "string" ? params.error : null;
   const notice = noticeKey ? NOTICES[noticeKey] : null;
@@ -136,6 +140,61 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
           <CardBody className="border-t border-border">
             <h3 className="mb-3 text-sm font-semibold">Add an iCal feed</h3>
             <IcsSourceForm />
+          </CardBody>
+        </Card>
+
+        <Card id="ai" className="lg:col-span-2">
+          <CardHeader
+            title={
+              <span className="inline-flex items-center gap-1.5">
+                <Sparkles className="size-4" /> AI assistant
+              </span>
+            }
+            description="Morning notes, project summaries and answers from your documents, written by the models behind your 9router."
+            actions={
+              ai.device ? (
+                <Badge tone="ok">{ai.device.name}{ai.device.model ? `, ${ai.device.model}` : ""}</Badge>
+              ) : (
+                <Badge tone="warn">no agent ready</Badge>
+              )
+            }
+          />
+          <CardBody className="grid gap-6 lg:grid-cols-2">
+            <div>
+              <AiSettingsForm enabled={ai.enabled} dailyTokens={ai.dailyTokens} language={ai.language} />
+              {!ai.device ? (
+                <p className="mt-3 text-[12.5px] text-muted">
+                  On your PC run <code className="rounded bg-surface-2 px-1 font-mono">hub-agent ai-setup</code> with a 9router API key; the agent then picks up jobs every few
+                  seconds.
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <div className="mb-1 flex justify-between text-[13px]">
+                <span className="font-medium">Today</span>
+                <span className="text-muted tabular-nums">{`${ai.usedToday.toLocaleString("en-US")} of ${ai.dailyTokens.toLocaleString("en-US")} tokens`}</span>
+              </div>
+              <ProgressBar value={ai.dailyTokens ? ai.usedToday / ai.dailyTokens : 1} tone={ai.usedToday >= ai.dailyTokens ? "danger" : "accent"} label="AI tokens used today" />
+              {aiJobs?.length ? (
+                <ul className="mt-4 divide-y divide-border/70 text-[13px]">
+                  {aiJobs.map((job) => (
+                    <li key={job.id} className="flex items-baseline justify-between gap-3 py-1.5">
+                      <span>{{ brief: "Morning note", project_summary: "Project summary", ask_docs: "Question" }[job.kind] ?? job.kind}</span>
+                      <Meta
+                        className="text-[12px] text-muted"
+                        items={[
+                          <span key="s" className={job.status === "failed" || job.status === "expired" ? "text-danger" : undefined} title={job.error ?? undefined}>
+                            {job.status}
+                          </span>,
+                          `${(job.used_tokens ?? job.reserved_tokens).toLocaleString()} tokens`,
+                          relativeTime(job.created_at),
+                        ]}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           </CardBody>
         </Card>
 

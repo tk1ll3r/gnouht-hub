@@ -1,10 +1,11 @@
 import { parseChecklist, type ChecklistResult, type ChecklistStatus } from "./checklist";
+import { chunkCode, codeLanguageOf, extractTodos, outlineOf, type CodeTodo, type OutlineSymbol } from "./code";
 import { findReferenceDate, parseDateCell, parseDeadlineTables } from "./deadline-table";
 import { normalizeForKey, stableHash } from "./hash";
 import { isFenceLine, isTableSeparator, parseHeading, stripInlineMarkdown } from "./markdown";
 import { redactSecrets } from "./redact";
 
-export const DOCUMENT_KINDS = ["markdown", "text", "docx", "pdf", "pptx"] as const;
+export const DOCUMENT_KINDS = ["markdown", "text", "docx", "pdf", "pptx", "code"] as const;
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
 
 /** Extracted text kept per document (characters). Longer documents are truncated by the agent. */
@@ -22,7 +23,16 @@ const EXTENSION_KINDS: Record<string, DocumentKind> = {
 
 export function documentKindOf(path: string): DocumentKind | null {
   const ext = /\.([A-Za-z0-9]+)$/.exec(path)?.[1]?.toLowerCase();
-  return ext ? (EXTENSION_KINDS[ext] ?? null) : null;
+  const kind = ext ? (EXTENSION_KINDS[ext] ?? null) : null;
+  // "CMakeLists.txt" is code; other .txt files stay plain text.
+  if (kind && !(kind === "text" && codeLanguageOf(path))) return kind;
+  return codeLanguageOf(path) ? "code" : null;
+}
+
+/** Language id for highlighting: the code language, "markdown" for notes, null for everything else. */
+export function documentLanguageOf(path: string, kind: DocumentKind): string | null {
+  if (kind === "code") return codeLanguageOf(path);
+  return kind === "markdown" ? "markdown" : null;
 }
 
 /**
@@ -159,7 +169,13 @@ export interface DocumentAnalysis {
   title: string;
   checklist: ChecklistResult;
   deadlines: DocumentDeadline[];
-  chunks: DocumentChunk[];
+  chunks: (DocumentChunk & { terms?: string })[];
+  language: string | null;
+  lineCount: number;
+  /** Headings (notes) or declarations (code), for the outline panel and "go to symbol". */
+  outline: OutlineSymbol[];
+  /** TODO/FIXME comments (code only). */
+  todos: CodeTodo[];
   referenceDate: string | null;
   /** Text after secret redaction (what gets stored). */
   text: string;
@@ -177,9 +193,29 @@ function fileTitle(path: string): string {
  */
 export function analyzeDocument(input: { path: string; kind: DocumentKind; text: string; referenceDate?: string | null }): DocumentAnalysis {
   const { text, count } = redactSecrets(input.text.normalize("NFC").slice(0, MAX_DOCUMENT_CHARS));
+  const language = documentLanguageOf(input.path, input.kind);
+  const lineCount = text ? text.split(/\r?\n/).length : 0;
+  if (input.kind === "code") {
+    const outline = outlineOf(text, language);
+    return {
+      title: input.path.split("/").at(-1)!.slice(0, 300),
+      checklist: parseChecklist(""),
+      deadlines: [],
+      chunks: chunkCode(text, outline),
+      language,
+      lineCount,
+      outline,
+      todos: extractTodos(text),
+      referenceDate: null,
+      text,
+      redactions: count,
+    };
+  }
   const chunks = chunkDocument(text);
+  const outline = input.kind === "markdown" ? outlineOf(text, "markdown") : [];
+  const base = { chunks, language, lineCount, outline, todos: [] as CodeTodo[] };
   if (input.kind !== "markdown" && input.kind !== "text") {
-    return { title: fileTitle(input.path), checklist: parseChecklist(""), deadlines: [], chunks, referenceDate: null, text, redactions: count };
+    return { title: fileTitle(input.path), checklist: parseChecklist(""), deadlines: [], ...base, referenceDate: null, text, redactions: count };
   }
 
   const reference = input.referenceDate ?? findReferenceDate(text);
@@ -207,5 +243,5 @@ export function analyzeDocument(input: { path: string; kind: DocumentKind; text:
 
   const heading = text.split(/\r?\n/).map(parseHeading).find((h) => h && h.level <= 2);
   const title = heading?.text || fileTitle(input.path);
-  return { title: title.slice(0, 300), checklist, deadlines, chunks, referenceDate: reference, text, redactions: count };
+  return { title: title.slice(0, 300), checklist, deadlines, ...base, referenceDate: reference, text, redactions: count };
 }

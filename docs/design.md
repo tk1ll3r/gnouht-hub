@@ -40,6 +40,19 @@ Colour always means something; decorative colour comes only from the user's own 
 - No "A · B · C" chains: secondary facts go through `<Meta>` (spaced) or plain commas. No all-caps labels.
 - Motion: one ink-in reveal of the date line; `prefers-reduced-motion` turns it off.
 
+## Code
+
+- Source is written in the two school inks: purple (the accent) for keywords, blue (*mực xanh*) for names,
+  green for strings, amber for literals, pencil grey in italics for comments. Dark mode switches to chalk.
+  The colours are `--syn-*` tokens, applied only through highlight.js class names.
+- Line numbers sit left of the red margin line, as in the notebook. The line in the URL (`#L42`) gets the
+  highlighter; so does a heading reached from the outline.
+- The file workspace keeps the app's sheet: an explorer column, tabs with an ink stroke on the open one,
+  breadcrumbs, the outline and TODOs on the right, and a quiet status bar. On phones the explorer and outline
+  fold into disclosure rows above and below the file.
+- The command palette is a native `<dialog>` (focus trap, Esc, backdrop for free). Match highlights are ink,
+  not highlighter, so they read as "typed" rather than "found".
+
 ## Copy
 
 Sentence case, plain verbs, the user's words ("share my free/busy", not "enable availability export").

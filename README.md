@@ -43,6 +43,30 @@ about your documents with citations (`/docs` → Ask). The hub builds every prom
 daily budget; the agent relays it to your own 9router and returns the answer. Document text is always fenced as
 data the model must not obey, answers render with no live links or images, and prompts are deleted once answered.
 
+## Code workspace
+
+Watch a code folder with `hub-agent project add <folder> --code` (or `hub-agent project code <n> on` for one
+already watched) and its source files are indexed next to the notes. Build output, dependencies, lock files
+and minified bundles are skipped. Configuration files (JSON, YAML, TOML) are only read if you ask with
+`--include`. Secrets are redacted before anything leaves the PC, as they are for notes.
+
+**Open files** on a project opens a read-only workspace:
+- an explorer tree and tabs
+- highlighted source with line numbers
+- the file's outline and its TODO/FIXME comments
+
+The project page adds a language breakdown and a **Problems** list, where any comment can become a task. Search
+understands identifiers (`checklist` finds `parseChecklist`) and can be narrowed to source code.
+
+The keyboard works the way it does in VS Code:
+- <kbd>Ctrl</kbd>+<kbd>P</kbd> opens any file, project or course.
+- <kbd>Ctrl</kbd>+<kbd>K</kbd> opens commands.
+- In the box, `@` jumps to a symbol, `:` to a line and `#` searches inside files.
+- `g` then a letter moves between pages, and `c` adds a task.
+- <kbd>?</kbd> lists every shortcut.
+
+The hub never writes to your PC. Edit files in your editor and the agent re-syncs them.
+
 ## Account security
 
 Settings → Sign-in and account turns on two-step sign-in with any authenticator app (TOTP), signs out every
@@ -74,7 +98,7 @@ The agent only makes outbound HTTPS requests signed with HMAC-SHA256 (timestamp 
 
 ```bash
 npm test                    # Vitest: core + web + agent
-npm run db:test             # pgTAP: RLS matrix, signup hook, projects and search, groups and sharing, AI jobs, sessions and MFA
+npm run db:test             # pgTAP: RLS matrix, signup hook, projects and search, groups and sharing, AI jobs, sessions and MFA, code files
 npm run typecheck && npm run lint
 node apps/web/test/smoke.mjs   # end-to-end against the running app (dev server or `next start`)
 node apps/agent/test/e2e.mjs   # agent pairing, signed requests, quota, document sync and AI jobs (after the smoke test)

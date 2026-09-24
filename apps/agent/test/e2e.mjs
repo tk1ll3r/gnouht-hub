@@ -4,7 +4,7 @@
 // Manager entries it creates. Usage: node apps/agent/test/e2e.mjs (after `npm run build -w @hub/agent`)
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, createHmac, randomBytes, randomInt } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -189,6 +189,44 @@ try {
   check(remove.status === 0, "project remove stops watching");
   await admin.from("projects").delete().eq("id", project.id);
   rmSync(docsDir, { recursive: true, force: true });
+
+  // Source code: opt-in with --code; build output and lock files stay out; the hub stores language,
+  // outline and TODOs, and identifiers are searchable by their parts.
+  const codeDir = mkdtempSync(join(tmpdir(), "hub-agent-code-"));
+  const put = (rel, content) => {
+    mkdirSync(join(codeDir, rel, ".."), { recursive: true });
+    writeFileSync(join(codeDir, rel), content);
+  };
+  put("README.md", "# Lab 3\nAES modes.\n");
+  put("src/cipher.ts", ["export class BlockCipher {", "  encryptBlock(input: Uint8Array): Uint8Array {", "    // FIXME: constant-time compare", "    return input;", "  }", "}", "", "export function parseChecklist(text: string) {", "  // TODO: nested lists", '  const apiKey = "sk-proj-abcdefghijklmnopqrstuvwxyz0123";', "  return text;", "}"].join("\n"));
+  put("scripts/run.py", "def main():\n    pass\n");
+  put("dist/bundle.js", "function a(){}");
+  put("node_modules/x/index.js", "module.exports = 1;");
+  put("package-lock.json", "{}");
+  const addCode = await run("project", "add", codeDir, "--name", "E2E code", "--code");
+  check(addCode.status === 0 && /3 file\(s\) to index/.test(addCode.stdout), "project add --code lists sources and notes, not build output or lock files", addCode.stdout.trim() || addCode.stderr.trim());
+  const syncCode = await run("sync-docs");
+  check(syncCode.status === 0 && /3 files, 3 uploaded/.test(syncCode.stdout), "source files sync", syncCode.stdout.trim() || syncCode.stderr.trim());
+  const { data: codeProject } = await admin.from("projects").select("id").eq("user_id", ownerId).eq("name", "E2E code").single();
+  const { data: cipher } = await admin.from("project_documents").select("kind, language, line_count, outline, todos, content, redactions").eq("project_id", codeProject.id).eq("path", "src/cipher.ts").single();
+  check(
+    cipher?.kind === "code" && cipher.language === "typescript" && cipher.line_count === 12 && !cipher.content.includes("sk-proj") && cipher.redactions >= 1,
+    "a source file is stored as TypeScript with its secret redacted",
+    JSON.stringify(cipher && [cipher.kind, cipher.language, cipher.line_count, cipher.redactions]),
+  );
+  check(
+    JSON.stringify(cipher?.outline?.map((s) => `${s.kind}:${s.name}`)) === JSON.stringify(["class:BlockCipher", "method:encryptBlock", "function:parseChecklist"]) &&
+      JSON.stringify(cipher?.todos?.map((t) => `${t.tag}@${t.line}`)) === JSON.stringify(["FIXME@3", "TODO@9"]),
+    "the hub extracts the outline and TODO comments",
+    JSON.stringify([cipher?.outline, cipher?.todos]),
+  );
+  const { data: codeHits } = await admin.rpc("search_documents", { p_query: "checklist", p_project: codeProject.id, p_kinds: ["code"] });
+  check(codeHits?.length === 1, "a word inside an identifier finds the source file");
+  const codeOff = await run("project", "code", "1", "off");
+  check(codeOff.status === 0 && /0 source file/.test(codeOff.stdout), "project code off stops indexing sources", codeOff.stdout.trim() || codeOff.stderr.trim());
+  await run("project", "remove", "1");
+  await admin.from("projects").delete().eq("id", codeProject.id);
+  rmSync(codeDir, { recursive: true, force: true });
 
   // AI jobs: the hub queues a job, the agent relays it to 9router and returns the answer.
   writeFileSync(join(home, "config.json"), JSON.stringify({ ...JSON.parse(readFileSync(join(home, "config.json"), "utf8")), aiModel: "cc/fake-model" }));

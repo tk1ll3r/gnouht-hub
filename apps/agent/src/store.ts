@@ -45,8 +45,8 @@ export const configSchema = z.object({
       z.object({
         root: z.string().min(1),
         name: z.string().trim().min(1).max(120),
-        include: z.array(z.string().min(1).max(200)).max(20).default(DEFAULT_INCLUDE),
-        exclude: z.array(z.string().min(1).max(200)).max(50).default([]),
+        include: z.array(z.string().min(1).max(1000)).max(20).default(DEFAULT_INCLUDE),
+        exclude: z.array(z.string().min(1).max(1000)).max(50).default([]),
       }),
     )
     .max(30)
@@ -59,12 +59,32 @@ export function configDir(): string {
   return process.env.HUB_AGENT_HOME ? base : join(base, "gnouht-hub-agent");
 }
 
+/**
+ * The saved configuration, or defaults when there is none yet. A file that exists but cannot be read or
+ * validated is an error: falling back to defaults would silently forget the pairing and watched folders,
+ * and the next save would overwrite them.
+ */
 export function loadConfig(): AgentConfig {
+  const path = join(configDir(), "config.json");
+  let raw: string;
   try {
-    return configSchema.parse(JSON.parse(readFileSync(join(configDir(), "config.json"), "utf8")));
-  } catch {
-    return configSchema.parse({});
+    raw = readFileSync(path, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return configSchema.parse({});
+    throw new Error(`Cannot read ${path}: ${(err as Error).message}`);
   }
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new Error(`${path} is not valid JSON. Fix it, or delete it and pair again.`);
+  }
+  const parsed = configSchema.safeParse(json);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new Error(`${path} is not a valid configuration (${issue?.path.join(".") || "root"}: ${issue?.message}). Fix it, or delete it and pair again.`);
+  }
+  return parsed.data;
 }
 
 export function saveConfig(config: AgentConfig): void {

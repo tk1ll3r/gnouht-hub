@@ -130,7 +130,11 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
         <Card className="h-fit">
           <CardHeader title="New task" />
           <CardBody>
-            <TaskForm courses={ws.courses.map((c) => ({ id: c.id, code: c.code, name: c.name }))} projects={projects.map((p) => ({ id: p.id, name: p.name }))} />
+            <TaskForm
+              courses={ws.courses.map((c) => ({ id: c.id, code: c.code, name: c.name }))}
+              projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+              autoFocus={params.new === "1"}
+            />
           </CardBody>
         </Card>
       </div>

@@ -6,7 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 type Client = SupabaseClient<Database>;
 
 export type Project = Tables<"projects">;
-export type ProjectDocument = Omit<Tables<"project_documents">, "content">;
+export type ProjectDocument = Omit<Tables<"project_documents">, "content" | "outline" | "todos">;
 export type ChecklistItemRow = Tables<"checklist_items">;
 
 export const PROJECT_STATUSES = ["active", "paused", "done", "archived"] as const;
@@ -14,7 +14,7 @@ export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
 /** Document columns without the (large) content, for lists. */
 export const DOCUMENT_LIST_COLUMNS =
-  "id, user_id, project_id, path, kind, title, content_hash, size_bytes, modified_at, truncated, redactions, reference_date, items_total, items_done, items_doing, items_attention, items_cut, error, indexed_at";
+  "id, user_id, project_id, path, kind, title, content_hash, size_bytes, modified_at, truncated, redactions, reference_date, items_total, items_done, items_doing, items_attention, items_cut, error, indexed_at, language, line_count";
 
 export interface ProjectProgress {
   /** 0–1: checklist items done ÷ (total − cut), or finished tasks ÷ tasks for projects without checklists. */

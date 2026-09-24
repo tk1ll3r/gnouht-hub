@@ -265,6 +265,77 @@ const jobStatus = await get(`/api/ai/jobs/${askJob.id}`);
 check(jobStatus.status === 200 && (await jobStatus.json()).status === "done", "owners can poll their AI job");
 check((await fetch(`${APP}/api/ai/jobs/${askJob.id}`)).status === 401, "the AI job route needs a session");
 
+// Code workspace: a source file renders as highlighted, anchored lines with file content kept inert;
+// search narrows to code; the palette index needs a session and follows RLS; TODOs become tasks once.
+{
+  const codeText = [
+    "export function parseChecklist(text: string) {",
+    "  // FIXME: nested lists",
+    '  return "<script>alert(1)</script>" + "<img src=x onerror=alert(2)>";',
+    "}",
+  ].join("\n");
+  const { data: codeDocId, error: codeError } = await admin.rpc("ingest_document", {
+    p_project: project.id,
+    p_document: {
+      path: "src/checklist.ts",
+      kind: "code",
+      title: "checklist.ts",
+      hash: "c".repeat(64),
+      content: codeText,
+      language: "typescript",
+      lineCount: 4,
+      outline: [{ name: "parseChecklist", kind: "function", line: 1, depth: 0 }],
+      todos: [{ tag: "FIXME", text: "nested lists", line: 2 }],
+    },
+    p_chunks: [{ ord: 0, heading: "parseChecklist", content: codeText, line: 1, terms: "parse checklist" }],
+    p_items: [],
+    p_deadlines: [],
+  });
+  check(!codeError && Boolean(codeDocId), "a source file can be ingested", codeError?.message);
+  const codePage = await get(`/projects/${project.id}/docs/${codeDocId}`);
+  const codeHtml = await codePage.text();
+  check(
+    codePage.status === 200 && codeHtml.includes('id="L3"') && codeHtml.includes('class="hljs-keyword"') && codeHtml.includes("parseChecklist") && codeHtml.includes("nested lists"),
+    "the code view shows numbered, highlighted lines with the outline and TODOs",
+  );
+  check(!codeHtml.includes("<script>alert(1)") && !/<img[^>]*onerror/.test(codeHtml) && codeHtml.includes("&lt;script&gt;alert(1)"), "markup in source files stays text");
+  check(!/\sstyle="/.test(codeHtml), "the code view uses no inline styles (CSP)");
+  const codeSearch = await (await get("/docs?q=checklist&kind=code")).text();
+  check(codeSearch.includes("src/checklist.ts") && codeSearch.includes(`/docs/${codeDocId}#L1`), "search finds a word inside an identifier and links to the line");
+
+  check((await fetch(`${APP}/api/palette`)).status === 401, "the palette index needs a session");
+  const palette = await get("/api/palette");
+  const index = await palette.json().catch(() => ({}));
+  check(
+    palette.status === 200 && (palette.headers.get("cache-control") ?? "").includes("no-store") && index.files?.some((f) => f.path === "src/checklist.ts" && f.language === "typescript"),
+    "the palette index lists the user's files, uncached",
+  );
+  const { data: friendLink } = await admin.auth.admin.generateLink({ type: "magiclink", email: friendEmail });
+  const friendConfirm = await fetch(`${APP}/auth/confirm?token_hash=${friendLink.properties.hashed_token}&type=magiclink`, { redirect: "manual" });
+  const friendCookie = friendConfirm.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+  const friendIndex = await (await fetch(`${APP}/api/palette`, { headers: { cookie: friendCookie } })).json().catch(() => ({}));
+  check(Array.isArray(friendIndex.files) && !friendIndex.files.some((f) => f.path === "src/checklist.ts"), "another user's palette never lists the owner's files");
+
+  // "Make task" from the Problems list, submitted like a browser without JavaScript.
+  const makeTask = async () => {
+    const html = await (await get(`/projects/${project.id}`)).text();
+    const form = [...html.matchAll(/<form[\s\S]*?<\/form>/g)].map((m) => m[0]).find((f) => f.includes(`value="${codeDocId}"`) && f.includes('name="line"'));
+    if (!form) return false;
+    const body = new FormData();
+    for (const [input] of form.matchAll(/<input[^>]*type="hidden"[^>]*>/g)) {
+      const name = /name="([^"]*)"/.exec(input)?.[1];
+      if (name) body.append(name.replace(/&quot;/g, '"').replace(/&amp;/g, "&"), (/value="([^"]*)"/.exec(input)?.[1] ?? "").replace(/&quot;/g, '"').replace(/&amp;/g, "&"));
+    }
+    const res = await fetch(`${APP}/projects/${project.id}`, { method: "POST", body, headers: { cookie: cookies, origin: APP }, redirect: "manual" });
+    return res.status < 400;
+  };
+  const made = await makeTask();
+  await makeTask();
+  const { data: todoTasks } = await admin.from("tasks").select("title, project_id").eq("user_id", ownerId).eq("notes", "FIXME in src/checklist.ts:2");
+  check(made && todoTasks?.length === 1 && todoTasks[0].title === "nested lists" && todoTasks[0].project_id === project.id, "a FIXME becomes one task linked to the project", JSON.stringify(todoTasks));
+  await admin.from("tasks").delete().eq("user_id", ownerId).eq("notes", "FIXME in src/checklist.ts:2");
+}
+
 // Invite landing page: public, but only the invited address can accept.
 const inviteAnon = await fetch(`${APP}/invite/${inviteToken}`);
 const inviteAnonHtml = await inviteAnon.text();

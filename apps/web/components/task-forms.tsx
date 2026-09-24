@@ -1,7 +1,7 @@
 "use client";
 
 import { STATUS_LABELS, TASK_KINDS, TASK_STATUSES } from "@hub/core";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { createTask, updateTask } from "@/app/(app)/tasks/actions";
 import { ActionForm, SubmitButton } from "./forms";
 import { Field, Input, Select } from "./ui";
@@ -61,7 +61,17 @@ function TaskDetailFields({ courses, projects, errors }: { courses: CourseOption
   );
 }
 
-export function TaskForm({ courses, projects = [], compact = false }: { courses: CourseOption[]; projects?: ProjectOption[]; compact?: boolean }) {
+export function TaskForm({
+  courses,
+  projects = [],
+  compact = false,
+  autoFocus = false,
+}: {
+  courses: CourseOption[];
+  projects?: ProjectOption[];
+  compact?: boolean;
+  autoFocus?: boolean;
+}) {
   if (compact) {
     // Quick add: the title and a date are enough; everything else is one click away.
     return (
@@ -85,12 +95,21 @@ export function TaskForm({ courses, projects = [], compact = false }: { courses:
       </ActionForm>
     );
   }
+  return <FullTaskForm courses={courses} projects={projects} autoFocus={autoFocus} />;
+}
+
+function FullTaskForm({ courses, projects, autoFocus }: { courses: CourseOption[]; projects: ProjectOption[]; autoFocus: boolean }) {
+  const titleRef = useRef<HTMLInputElement>(null);
+  // `autoFocus` only acts on mount; the "c" shortcut can arrive while the page is already open.
+  useEffect(() => {
+    if (autoFocus) titleRef.current?.focus();
+  }, [autoFocus]);
   return (
     <ActionForm action={createTask} resetOnSuccess className="grid gap-3 sm:grid-cols-6">
       {(state) => (
         <>
           <Field label="Task" htmlFor="t-title" error={state.errors?.title} className="sm:col-span-6">
-            <Input id="t-title" name="title" required maxLength={300} placeholder="Finish lab 3 report" />
+            <Input ref={titleRef} id="t-title" name="title" required maxLength={300} placeholder="Finish lab 3 report" />
           </Field>
           <Field label="Due date" htmlFor="t-date" error={state.errors?.due_date} className="sm:col-span-6">
             <Input id="t-date" name="due_date" type="date" />

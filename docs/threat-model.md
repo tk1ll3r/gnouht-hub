@@ -1,4 +1,4 @@
-# Threat model (v1, milestones M1–M6)
+# Threat model (v1, milestones M1–M7)
 
 ## Assets
 
@@ -63,6 +63,12 @@ owner's PC); friends' data (M4); AI prompts and answers (M5).
 | DoS / brute force | Scripted sign-in, search, AI or write floods | Database-backed fixed-window limits per user (and per IP and hashed address for sign-in); see `docs/pentest.md` | smoke test, code review |
 | Info disclosure | Account data on request / right to erasure | Export returns only the caller's own rows under RLS (no secrets); deletion needs the typed address, revokes Google grants, hands owned groups to a member, then cascades | smoke test, pgTAP `070` |
 | Elevation | Regressions in headers or CSRF protection | ZAP baseline in CI with triaged rules; Server Actions keep Next.js' Origin check | CI `e2e`, `docs/pentest.md` |
+| Info disclosure | Source code uploaded with credentials in it | Code indexing is opt-in per folder (`--code`); configuration formats only through explicit globs; dot files (`.env`), secret-looking names, build output, vendored and lock files never listed; 1 MB cap and binary detection; the same redaction on the PC and on ingest | Vitest agent `documents`, agent e2e |
+| Elevation | XSS through a source file or a Markdown code fence | Highlighting runs on the server and yields text plus highlight.js class names only (no HTML strings, no inline styles, nothing rendered with `dangerouslySetInnerHTML`); heading anchors are slugs prefixed `h-` | Vitest `highlight`, smoke test |
+| Info disclosure | Quick-open index listing other users' files | `/api/palette` reads names and paths (never content) with the user's client under RLS, after the session check, rate limited and `no-store` | smoke test |
+| Info disclosure | Recent files and tabs left in a shared browser | Per-browser conveniences only (localStorage), keyed per user and wiped on sign-out and whenever the sign-in page loads | Playwright walkthrough |
+| Tampering | Turning someone else's TODO into your task | The action reads the file under RLS and only acts on the caller's own files; a comment becomes at most one open task | smoke test |
+| DoS | Huge or pathological source files | 1 MB per source file, 120k characters stored, 400 chunks, 500 outline entries and 200 TODOs per file; highlighting skipped past 200k characters; linear-time outline and TODO scans; fuzzy matching O(n·m) per candidate | Vitest `code`, `fuzzy` |
 
 ## Residual risks
 
@@ -72,3 +78,6 @@ owner's PC); friends' data (M4); AI prompts and answers (M5).
 - The rate limiter fails open if its database call errors (see `docs/pentest.md` F4).
 - Supabase Auth ends a user's other aal1 sessions whenever a TOTP code is verified. This is expected, but
   it can look like a sign-out on another device.
+- Redaction is pattern-based. It also rewrites harmless code such as `password = getPassword()`, and it can
+  still miss secrets in unusual formats. Keep secrets in files the agent never lists (`.env`, `*.key`, names
+  containing "secret" or "credential").

@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { processJobs, type AiRuntime } from "./ai";
 import { CloudClient, CloudError } from "./cloud";
 import { HashCache, syncAllFolders, type FolderSyncResult } from "./docsync";
@@ -76,18 +76,30 @@ export function describeSync(results: FolderSyncResult[]): string {
 
 const DEFAULT_INTERVALS = { heartbeatSeconds: 60, quotaSeconds: 300, uitSeconds: 6 * 3600, documentsSeconds: 600, jobsSeconds: 10 };
 
+const NOISY_SEGMENT = /^(?:\..+|node_modules|venv|__pycache__|site-packages|dist|build|target|vendor|coverage|bin|obj|out)$/;
+
+/** True for paths below a dot, dependency or build folder, judged relative to the watched root it is in. */
+export function isNoisyPath(path: string, roots: string[]): boolean {
+  const absolute = resolve(path);
+  const root = roots.find((r) => absolute === r || absolute.startsWith(r.endsWith(sep) ? r : r + sep));
+  if (!root) return false;
+  return relative(root, absolute).split(/[\\/]+/).some((segment) => NOISY_SEGMENT.test(segment));
+}
+
 /** Debounced file watching: a change marks the folders dirty and a sync follows a few seconds later. */
 async function watchFolders(folders: WatchedFolder[], onChange: () => void, log: Logger): Promise<() => Promise<void>> {
   if (!folders.length) return async () => {};
   const { watch } = await import("chokidar");
+  const roots = folders.map((f) => resolve(f.root));
   const watcher = watch(
     folders.map((f) => f.root),
     {
       ignoreInitial: true,
       followSymlinks: false,
       depth: 15,
-      // Skip dot folders and heavy build folders; the sync applies the precise include/exclude globs.
-      ignored: (path) => /[\\/](?:\.[^\\/]+|node_modules|venv|__pycache__|site-packages|dist|build)(?:[\\/]|$)/.test(path),
+      // Skip dot folders and heavy build folders inside a watched folder (never the folders above it);
+      // the sync applies the precise include/exclude globs.
+      ignored: (path) => isNoisyPath(path, roots),
       awaitWriteFinish: { stabilityThreshold: 1500, pollInterval: 250 },
     },
   );

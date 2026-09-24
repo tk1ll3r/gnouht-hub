@@ -1,15 +1,17 @@
-import { addDaysToKey, STATUS_LABELS, zonedDateKey, type TaskStatus } from "@hub/core";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Circle, CircleDot, FileText, FolderSync, Scissors, Trash2 } from "lucide-react";
+import { addDaysToKey, languageLabel, STATUS_LABELS, zonedDateKey, type CodeTodo, type TaskStatus } from "@hub/core";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Circle, CircleDot, FileText, FolderSync, FolderTree, ListPlus, Scissors, Trash2 } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AiAnswer } from "@/components/ai-answer";
+import { FileIcon } from "@/components/file-icon";
+import { TodoTag } from "@/components/workspace";
 import { JobWatcher, SummarizeButton } from "@/components/ai-forms";
 import { ProgressHistoryChart } from "@/components/charts";
 import { InlineAction } from "@/components/forms";
 import { ProjectForm } from "@/components/project-forms";
 import { TaskControls } from "@/components/task-forms";
-import { Badge, Card, CardBody, CardHeader, ColorDot, EmptyState, Meta, ProgressBar } from "@/components/ui";
+import { Badge, ButtonLink, Card, CardBody, CardHeader, ColorDot, EmptyState, Meta, ProgressBar } from "@/components/ui";
 import { loadAiStatus } from "@/lib/ai";
 import { requireUser } from "@/lib/auth";
 import { loadWorkspace } from "@/lib/data";
@@ -17,7 +19,7 @@ import { formatDue, relativeTime } from "@/lib/format";
 import { DOCUMENT_LIST_COLUMNS, loadShareLabels, projectProgress, type ChecklistItemRow, type ProjectDocument } from "@/lib/projects";
 import { cn } from "@/lib/utils";
 import { uuid } from "@/lib/validation";
-import { deleteProject } from "../actions";
+import { deleteProject, todoToTask } from "../actions";
 
 export const metadata: Metadata = { title: "Project" };
 
@@ -105,16 +107,28 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
   const tz = ws.options.tz;
   const now = new Date();
   const since = addDaysToKey(zonedDateKey(now, tz), -90);
-  const [docsRes, itemsRes, tasksRes, historyRes] = await Promise.all([
+  const [docsRes, itemsRes, tasksRes, historyRes, todosRes] = await Promise.all([
     supabase.from("project_documents").select(DOCUMENT_LIST_COLUMNS).eq("project_id", id).order("path"),
     supabase.from("checklist_items").select("*").eq("project_id", id).order("ord").limit(5000),
     supabase.from("tasks").select("*").eq("project_id", id).order("due_at", { ascending: true, nullsFirst: false }).limit(500),
     supabase.from("project_progress_daily").select("day, done, total, cut").eq("project_id", id).gte("day", since).order("day"),
+    supabase.from("project_documents").select("id, path, todos").eq("project_id", id).eq("kind", "code").limit(1000),
   ]);
   const docs = docsRes.data ?? [];
   const items = itemsRes.data ?? [];
   const tasks = tasksRes.data ?? [];
   const history = historyRes.data ?? [];
+
+  // Coding view: where to start browsing, the language mix by lines, and TODO/FIXME comments.
+  const firstFile = docs.find((d) => /^readme\.(md|markdown|txt)$/i.test(d.path)) ?? docs.find((d) => d.kind === "code") ?? docs[0];
+  const linesByLanguage = new Map<string, number>();
+  for (const d of docs) if (d.kind === "code") linesByLanguage.set(d.language ?? "other", (linesByLanguage.get(d.language ?? "other") ?? 0) + d.line_count);
+  const codeLines = [...linesByLanguage.values()].reduce((a, b) => a + b, 0);
+  const languages = [...linesByLanguage].sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const severity = (tag: string) => (tag === "FIXME" || tag === "BUG" ? 0 : 1);
+  const problems = (todosRes.data ?? [])
+    .flatMap((d) => (Array.isArray(d.todos) ? (d.todos as unknown as CodeTodo[]) : []).map((t) => ({ ...t, docId: d.id, path: d.path })))
+    .sort((a, b) => severity(a.tag) - severity(b.tag) || a.path.localeCompare(b.path) || a.line - b.line);
 
   const progress = projectProgress(project, tasks);
   const openTasks = tasks.filter((t) => t.status !== "done" && t.status !== "cut");
@@ -161,6 +175,11 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
             </Link>
           ) : null}
         </div>
+        {firstFile ? (
+          <ButtonLink href={`/projects/${project.id}/docs/${firstFile.id}`} size="sm" className="mt-3">
+            <FolderTree className="size-3.5" /> Open files
+          </ButtonLink>
+        ) : null}
         {project.description ? <p className="mt-1 max-w-3xl text-sm text-muted">{project.description}</p> : null}
         <p className="mt-1 flex flex-wrap items-center gap-x-3 text-[12px] text-muted">
           {project.folder_label ? (
@@ -310,6 +329,46 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
             </Card>
           ) : null}
 
+          {codeLines ? (
+            <Card>
+              <CardHeader title="Languages" description={`${codeLines.toLocaleString("en")} lines of source`} />
+              <CardBody className="flex flex-col gap-2">
+                {languages.map(([language, lines]) => (
+                  <div key={language} className="grid grid-cols-[7.5rem_1fr_3rem] items-center gap-2 text-[13px]">
+                    <span className="truncate">{languageLabel(language === "other" ? null : language)}</span>
+                    <ProgressBar value={lines / codeLines} label={`${languageLabel(language)} share`} />
+                    <span className="text-right text-[12px] tabular-nums text-muted">{Math.round((lines / codeLines) * 100)}%</span>
+                  </div>
+                ))}
+              </CardBody>
+            </Card>
+          ) : null}
+
+          {problems.length ? (
+            <Card>
+              <CardHeader title="Problems" description={`${problems.length} TODO/FIXME comment(s) in the source.${isOwner ? " Make one a task to schedule it." : ""}`} />
+              <ul className="max-h-96 divide-y divide-border overflow-y-auto">
+                {problems.slice(0, 100).map((t) => (
+                  <li key={`${t.docId}-${t.line}`} className="flex items-start gap-2 px-4 py-2 text-[13px]">
+                    <TodoTag tag={t.tag} />
+                    <Link href={`/projects/${project.id}/docs/${t.docId}#L${t.line}`} className="min-w-0 flex-1 hover:text-accent">
+                      <span className="block">{t.text}</span>
+                      <span className="block truncate text-[12px] text-muted">
+                        {t.path}:{t.line}
+                      </span>
+                    </Link>
+                    {isOwner ? (
+                      <InlineAction action={todoToTask} fields={{ document_id: t.docId, line: String(t.line) }} title="Make this a task">
+                        <ListPlus className="size-3.5" />
+                        <span className="sr-only">Make this a task</span>
+                      </InlineAction>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader title="Documents" description={docs.length ? `${docs.length} indexed` : undefined} />
             {docs.length ? (
@@ -318,8 +377,9 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
                   <li key={doc.id}>
                     <Link href={`/projects/${project.id}/docs/${doc.id}`} className="flex flex-col gap-0.5 px-4 py-2.5 hover:bg-surface-2/60">
                       <span className="flex items-center gap-2 text-sm">
+                        <FileIcon kind={doc.kind} language={doc.language} />
                         <span className="min-w-0 flex-1 truncate font-medium">{doc.title}</span>
-                        <Badge>{doc.kind}</Badge>
+                        <Badge>{doc.kind === "code" ? languageLabel(doc.language) : doc.kind}</Badge>
                       </span>
                       <span className="flex flex-wrap items-center gap-x-2 text-[12px] text-muted">
                         <span className="truncate">{doc.path}</span>

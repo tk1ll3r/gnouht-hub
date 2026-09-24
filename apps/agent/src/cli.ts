@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { CloudError, pairDevice } from "./cloud";
 import { processJobs } from "./ai";
 import { aiRuntime, cloudFor, describeSync, pushDocuments, pushQuota, pushUit, runDaemon, sendHeartbeat } from "./daemon";
-import { checkFolderScope, DEFAULT_INCLUDE, listFolder } from "./documents";
+import { checkFolderScope, CODE_PRESET, DEFAULT_INCLUDE, listFolder } from "./documents";
 import { fetchMoodleToken, MoodleClient } from "./moodle";
 import { chatCompletion, listModels, NineRouterClient } from "./ninerouter";
 import { ask, askHidden } from "./prompt";
@@ -19,8 +19,11 @@ const HELP = `gnouht hub agent ${AGENT_VERSION}
   login-9router                    Store the 9router dashboard password (Credential Manager)
   ai-setup [--model NAME]          Store a 9router API key and pick the model for AI jobs
   login-uit                        Get a Moodle token with your UIT account (password is not stored)
-  project add <folder> [--name NAME] [--include GLOBS] [--exclude GLOBS]
-                                   Watch a project folder (globs are comma-separated, e.g. "**/*.md,**/*.pdf")
+  project add <folder> [--name NAME] [--code] [--include GLOBS] [--exclude GLOBS]
+                                   Watch a project folder (globs are comma-separated, e.g. "**/*.md,**/*.pdf");
+                                   --code also indexes source files for the hub's code view and search
+  project code <folder|number> on|off
+                                   Start or stop indexing source files of a watched folder
   project list | project remove <folder|number>
   status                           Check hub, 9router and Moodle connectivity
   push-quota | sync-uit | sync-docs | run-jobs
@@ -140,10 +143,12 @@ async function main(argv: string[]): Promise<number> {
         const scope = checkFolderScope(root);
         if (scope) throw new Error(scope);
         if (config.projects.some((p) => samePath(p.root, root))) throw new Error("That folder is already watched");
+        const code = args.includes("--code");
+        const include = globs(flag(args, "--include"));
         const folder = {
           root,
           name: (flag(args, "--name") ?? basename(root)).slice(0, 120),
-          include: globs(flag(args, "--include")) ?? DEFAULT_INCLUDE,
+          include: include ? (code ? [...new Set([...include, ...CODE_PRESET.slice(DEFAULT_INCLUDE.length)])] : include) : code ? CODE_PRESET : DEFAULT_INCLUDE,
           exclude: globs(flag(args, "--exclude")) ?? [],
         };
         const listing = await listFolder(folder);
@@ -165,6 +170,21 @@ async function main(argv: string[]): Promise<number> {
         }
         return 0;
       }
+      if (sub === "code") {
+        const mode = args[2];
+        if (!target || (mode !== "on" && mode !== "off")) throw new Error("Usage: hub-agent project code <folder|number> on|off");
+        const index = /^\d+$/.test(target) ? Number(target) - 1 : config.projects.findIndex((p) => samePath(p.root, target));
+        const folder = config.projects[index];
+        if (!folder) throw new Error("No such watched folder (see `hub-agent project list`)");
+        const codeGlobs = CODE_PRESET.slice(DEFAULT_INCLUDE.length);
+        const include = mode === "on" ? [...new Set([...folder.include, ...codeGlobs])] : folder.include.filter((g) => !codeGlobs.includes(g));
+        const updated = { ...folder, include: include.length ? include : DEFAULT_INCLUDE };
+        saveConfig({ ...config, projects: config.projects.map((p, i) => (i === index ? updated : p)) });
+        const listing = await listFolder(updated);
+        const sources = listing.files.filter((f) => f.kind === "code").length;
+        console.log(`${mode === "on" ? "Indexing" : "Stopped indexing"} source files in "${folder.name}" (${sources} source file(s) listed now).`);
+        return 0;
+      }
       if (sub === "remove") {
         if (!target) throw new Error("Usage: hub-agent project remove <folder|number>");
         const index = /^\d+$/.test(target) ? Number(target) - 1 : config.projects.findIndex((p) => samePath(p.root, target));
@@ -174,7 +194,7 @@ async function main(argv: string[]): Promise<number> {
         console.log(`Stopped watching "${removed.name}". Its data stays in the hub until you delete the project there.`);
         return 0;
       }
-      throw new Error("Usage: hub-agent project add|list|remove");
+      throw new Error("Usage: hub-agent project add|list|code|remove");
     }
     case "sync-docs": {
       if (!config.projects.length) throw new Error("No watched folders — run `hub-agent project add <folder>` first");

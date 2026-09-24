@@ -21,6 +21,15 @@
   --ok-soft: #e4f3ec;
   --margin: #ebb1ae; /* the red margin line */
   --ring: #3a2e9c;
+  /* Code is written in the two school inks: purple for keywords, blue (mực xanh) for names; strings in
+     green, literals in amber, comments in pencil. */
+  --syn-keyword: #3a2e9c;
+  --syn-name: #1f56a8;
+  --syn-string: #1e7a57;
+  --syn-literal: #9a5b00;
+  --syn-type: #0e6f7c;
+  --syn-attr: #4e5470;
+  --syn-comment: #767b8f;
   color-scheme: light;
 }
 
@@ -45,6 +54,14 @@
     --ok-soft: #1f3a2e;
     --margin: #7a3f3b;
     --ring: #b4a6ff;
+    /* Chalk colours on the board. */
+    --syn-keyword: #b4a6ff;
+    --syn-name: #8cc4ff;
+    --syn-string: #7ed0a2;
+    --syn-literal: #f2d46e;
+    --syn-type: #7fd6d0;
+    --syn-attr: #c7cdc4;
+    --syn-comment: #8f9c93;
     color-scheme: dark;
   }
 }
@@ -225,6 +242,147 @@
       100% 2rem,
       100% 0.5rem;
     background-position: 0 1.95rem;
+  }
+
+  /* Source files: line numbers sit left of the notebook's red margin line; the line in the URL (#L42)
+     gets a highlighter stroke. Long lines scroll unless word wrap is on. */
+  .code-view {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    tab-size: 4;
+    padding: 0.5rem 0;
+  }
+  .code-line {
+    display: flex;
+    min-width: max-content;
+    scroll-margin-top: 30vh;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 1.65em;
+  }
+  .code-view[data-wrap="true"] .code-line {
+    min-width: 0;
+  }
+  .code-ln {
+    position: sticky;
+    left: 0;
+    flex: none;
+    padding: 0 0.75ch 0 1ch;
+    border-right: 1.5px solid var(--margin);
+    background: var(--surface);
+    color: var(--muted);
+    text-align: right;
+    user-select: none;
+    opacity: 0.75;
+  }
+  .code-view[data-digits="1"] .code-ln,
+  .code-view[data-digits="2"] .code-ln {
+    width: 4.75ch;
+  }
+  .code-view[data-digits="3"] .code-ln {
+    width: 5.75ch;
+  }
+  .code-view[data-digits="4"] .code-ln {
+    width: 6.75ch;
+  }
+  .code-view[data-digits="5"] .code-ln,
+  .code-view[data-digits="6"] .code-ln {
+    width: 7.75ch;
+  }
+  .code-ln:hover {
+    color: var(--accent);
+    opacity: 1;
+  }
+  .code-text {
+    white-space: pre;
+    padding: 0 2ch 0 1.5ch;
+  }
+  .code-view[data-wrap="true"] .code-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+  .code-line:target,
+  .code-line:target .code-ln {
+    background: var(--warn-soft);
+  }
+  .code-line:target .code-ln {
+    color: var(--warn);
+    opacity: 1;
+  }
+  .prose-doc :is(h1, h2, h3, h4, h5, h6):target {
+    border-radius: 0.25rem;
+    background: var(--warn-soft);
+    box-shadow: 0 0 0 0.35rem var(--warn-soft);
+  }
+
+  /* highlight.js token classes (the only styling code receives). */
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-tag,
+  .hljs-name,
+  .hljs-meta .hljs-keyword {
+    color: var(--syn-keyword);
+  }
+  .hljs-title,
+  .hljs-section,
+  .hljs-function .hljs-title,
+  .hljs-selector-id,
+  .hljs-selector-class {
+    color: var(--syn-name);
+  }
+  .hljs-string,
+  .hljs-regexp,
+  .hljs-char,
+  .hljs-template-tag,
+  .hljs-code {
+    color: var(--syn-string);
+  }
+  .hljs-number,
+  .hljs-literal,
+  .hljs-symbol,
+  .hljs-bullet,
+  .hljs-link {
+    color: var(--syn-literal);
+  }
+  .hljs-type,
+  .hljs-built_in,
+  .hljs-title.class_,
+  .hljs-title.class_.inherited__ {
+    color: var(--syn-type);
+  }
+  .hljs-attr,
+  .hljs-attribute,
+  .hljs-property,
+  .hljs-variable,
+  .hljs-template-variable,
+  .hljs-params,
+  .hljs-selector-attr,
+  .hljs-selector-pseudo {
+    color: var(--syn-attr);
+  }
+  .hljs-comment,
+  .hljs-quote,
+  .hljs-meta,
+  .hljs-doctag {
+    color: var(--syn-comment);
+  }
+  .hljs-comment,
+  .hljs-quote,
+  .hljs-emphasis {
+    font-style: italic;
+  }
+  .hljs-strong,
+  .hljs-section {
+    font-weight: 600;
+  }
+  .hljs-addition {
+    color: var(--ok);
+    background: var(--ok-soft);
+  }
+  .hljs-deletion {
+    color: var(--danger);
+    background: var(--danger-soft);
   }
 
   .ink-in {

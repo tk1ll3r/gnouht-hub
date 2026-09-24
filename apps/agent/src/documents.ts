@@ -1,4 +1,4 @@
-import { documentKindOf, isSafeRelativePath, MAX_DOCUMENT_CHARS, redactSecrets, type DocumentKind } from "@hub/core";
+import { CODE_EXCLUDE, CODE_INCLUDE, documentKindOf, isSafeRelativePath, MAX_CODE_BYTES, MAX_DOCUMENT_CHARS, redactSecrets, type DocumentKind } from "@hub/core";
 import { MAX_PROJECT_FILES } from "@hub/core/protocol";
 import { createHash } from "node:crypto";
 import { readdir, stat } from "node:fs/promises";
@@ -8,6 +8,9 @@ import picomatch from "picomatch";
 
 /** Markdown, plain text and Word by default; PDFs and slides are opt-in (`--include "**\/*.pdf"`). */
 export const DEFAULT_INCLUDE = ["**/*.md", "**/*.markdown", "**/*.txt", "**/*.docx"];
+
+/** `project add --code`: the notes plus source files (configuration files stay opt-in through --include). */
+export const CODE_PRESET = [...DEFAULT_INCLUDE, ...CODE_INCLUDE];
 
 /**
  * Always skipped, whatever the include globs say. Dot files and folders (.git, .env, .obsidian, …) are
@@ -29,6 +32,8 @@ export const ALWAYS_EXCLUDE = [
   "**/*.pem",
   "**/id_rsa*",
   "**/id_ed25519*",
+  // Build output, vendored dependencies, lock and generated files.
+  ...CODE_EXCLUDE,
 ];
 
 const MAX_TEXT_BYTES = 4 * 1024 * 1024;
@@ -112,7 +117,7 @@ export async function listFolder(folder: WatchedFolder, maxFiles = MAX_PROJECT_F
       } catch {
         continue;
       }
-      const limit = kind === "markdown" || kind === "text" ? MAX_TEXT_BYTES : MAX_BINARY_BYTES;
+      const limit = kind === "code" ? MAX_CODE_BYTES : kind === "markdown" || kind === "text" ? MAX_TEXT_BYTES : MAX_BINARY_BYTES;
       if (info.size > limit) {
         skipped++;
         continue;
@@ -234,9 +239,13 @@ async function docxText(bytes: Uint8Array): Promise<string> {
  */
 export async function extractText(kind: DocumentKind, bytes: Uint8Array): Promise<ExtractedText> {
   let raw: string;
+  // A NUL byte early on means a binary file that happens to have a source extension (e.g. a compiled .m).
+  if ((kind === "code" || kind === "text") && bytes.subarray(0, 8192).includes(0) && !(bytes[0] === 0xff && bytes[1] === 0xfe) && !(bytes[0] === 0xfe && bytes[1] === 0xff)) {
+    return { text: "", truncated: false, redactions: 0, error: "looks like a binary file, skipped" };
+  }
   try {
     raw =
-      kind === "markdown" || kind === "text"
+      kind === "markdown" || kind === "text" || kind === "code"
         ? decodeText(bytes)
         : kind === "docx"
           ? await docxText(bytes)

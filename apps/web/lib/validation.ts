@@ -165,4 +165,5 @@ export const projectSchema = z.object({
 export const searchSchema = z.object({
   q: z.string().trim().max(200).catch(""),
   project: uuid.optional().catch(undefined),
+  kind: z.enum(["all", "notes", "code"]).catch("all"),
 });

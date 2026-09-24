@@ -1,7 +1,9 @@
+import { headingSlugger } from "@hub/core";
 import { AlertTriangle, CircleDot, Scissors } from "lucide-react";
 import { Children, isValidElement, type ReactNode } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { highlightLines } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 
 // The checklist dialect also uses [~] in progress, [!] needs attention and [CẮT]/[-] cut, which GFM
@@ -66,10 +68,70 @@ const components: Components = {
   },
 };
 
+function textOf(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) return textOf(node.props.children);
+  return "";
+}
+
+/** Fenced code blocks, highlighted on the server with the same class-only renderer as source files. */
+function FencedCode({ className, children }: { className?: string; children?: ReactNode }) {
+  const language = /\blanguage-([\w+#-]+)/.exec(className ?? "")?.[1]?.toLowerCase() ?? null;
+  const lines = highlightLines(textOf(children).replace(/\n$/, ""), language);
+  return (
+    <code className={className}>
+      {lines.map((segments, index) => (
+        <span key={index}>
+          {index ? "\n" : null}
+          {segments.map((s, i) =>
+            s.className ? (
+              <span key={i} className={s.className}>
+                {s.text}
+              </span>
+            ) : (
+              s.text
+            ),
+          )}
+        </span>
+      ))}
+    </code>
+  );
+}
+
+/**
+ * A whole project document. Headings get stable anchors (the outline links to them) and fenced code is
+ * highlighted; the slugger is per render so anchors follow document order, like the stored outline.
+ */
 export function DocumentMarkdown({ children, className }: { children: string; className?: string }) {
+  const slug = headingSlugger();
+  const heading = (Tag: "h1" | "h2" | "h3" | "h4" | "h5" | "h6") => {
+    function Heading({ children: content }: { children?: ReactNode }) {
+      return (
+        <Tag id={slug(textOf(content))} className="scroll-mt-4">
+          {content}
+        </Tag>
+      );
+    }
+    Heading.displayName = `Heading(${Tag})`;
+    return Heading;
+  };
+  const documentComponents: Components = {
+    ...components,
+    h1: heading("h1"),
+    h2: heading("h2"),
+    h3: heading("h3"),
+    h4: heading("h4"),
+    h5: heading("h5"),
+    h6: heading("h6"),
+    code({ className: codeClass, children: content }) {
+      const block = /\blanguage-/.test(codeClass ?? "") || textOf(content).includes("\n");
+      return block ? <FencedCode className={codeClass}>{content}</FencedCode> : <code>{content}</code>;
+    },
+  };
   return (
     <div className={cn("prose-hub prose-doc", className)}>
-      <Markdown remarkPlugins={[remarkGfm]} components={components} skipHtml>
+      <Markdown remarkPlugins={[remarkGfm]} components={documentComponents} skipHtml>
         {children}
       </Markdown>
     </div>

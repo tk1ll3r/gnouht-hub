@@ -25,8 +25,12 @@ export function ingestArgs(doc: UploadedDocument, analysis: DocumentAnalysis, tz
     referenceDate: analysis.referenceDate,
     stats: { ...analysis.checklist.stats },
     error: doc.error,
+    language: analysis.language,
+    lineCount: analysis.lineCount,
+    outline: analysis.outline,
+    todos: analysis.todos,
   };
-  const chunks = analysis.chunks.map((c) => ({ ord: c.ord, heading: c.heading, content: c.content, line: c.line }));
+  const chunks = analysis.chunks.map((c) => ({ ord: c.ord, heading: c.heading, content: c.content, line: c.line, ...(c.terms ? { terms: c.terms } : {}) }));
   const items = analysis.checklist.items.slice(0, MAX_ITEMS_PER_DOCUMENT).map((item) => ({
     key: item.key,
     text: item.text,
@@ -67,8 +71,8 @@ export async function ingestDocuments(admin: AdminClient, project: IngestProject
     const args = ingestArgs(doc, analysis, tz);
     const { error } = await admin.rpc("ingest_document", {
       p_project: project.id,
-      p_document: args.document as Json,
-      p_chunks: args.chunks as Json,
+      p_document: args.document as unknown as Json,
+      p_chunks: args.chunks as unknown as Json,
       p_items: args.items as Json,
       p_deadlines: args.deadlines as Json,
     });

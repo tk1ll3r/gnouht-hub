@@ -35,3 +35,23 @@ export async function deleteProject(formData: FormData): Promise<void> {
   if (data?.length) await audit(user.id, "project.delete", "project", id.data, { source: data[0]!.source });
   redirect("/projects");
 }
+
+/** Turns a TODO/FIXME comment of one of the owner's files into a task linked to the project (once). */
+export async function todoToTask(formData: FormData): Promise<void> {
+  const { user, supabase } = await requireUser();
+  const documentId = uuid.safeParse(formData.get("document_id"));
+  const line = Number(formData.get("line"));
+  if (!documentId.success || !Number.isInteger(line) || line < 1) return;
+  if (!(await allow(`task:${user.id}`, 60, 600))) return;
+  // RLS limits the read to files the caller can see; tasks may only link the caller's own projects.
+  const { data: doc } = await supabase.from("project_documents").select("id, user_id, project_id, path, todos").eq("id", documentId.data).maybeSingle();
+  if (!doc || doc.user_id !== user.id) return;
+  const todo = (Array.isArray(doc.todos) ? (doc.todos as { tag?: string; text?: string; line?: number }[]) : []).find((t) => t.line === line);
+  if (!todo?.text) return;
+  const notes = `${todo.tag ?? "TODO"} in ${doc.path}:${line}`;
+  const { data: existing } = await supabase.from("tasks").select("id").eq("project_id", doc.project_id).eq("notes", notes).not("status", "in", "(done,cut)").limit(1);
+  if (!existing?.length) {
+    await supabase.from("tasks").insert({ title: todo.text.slice(0, 300), kind: "task", project_id: doc.project_id, notes });
+  }
+  refresh();
+}

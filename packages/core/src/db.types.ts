@@ -496,6 +496,7 @@ export type Database = {
           line: number
           ord: number
           project_id: string
+          terms: string | null
           user_id: string
         }
         Insert: {
@@ -507,6 +508,7 @@ export type Database = {
           line?: number
           ord: number
           project_id: string
+          terms?: string | null
           user_id: string
         }
         Update: {
@@ -518,6 +520,7 @@ export type Database = {
           line?: number
           ord?: number
           project_id?: string
+          terms?: string | null
           user_id?: string
         }
         Relationships: [
@@ -825,13 +828,17 @@ export type Database = {
           items_done: number
           items_total: number
           kind: string
+          language: string | null
+          line_count: number
           modified_at: string | null
+          outline: Json
           path: string
           project_id: string
           redactions: number
           reference_date: string | null
           size_bytes: number
           title: string
+          todos: Json
           truncated: boolean
           user_id: string
         }
@@ -847,13 +854,17 @@ export type Database = {
           items_done?: number
           items_total?: number
           kind: string
+          language?: string | null
+          line_count?: number
           modified_at?: string | null
+          outline?: Json
           path: string
           project_id: string
           redactions?: number
           reference_date?: string | null
           size_bytes?: number
           title: string
+          todos?: Json
           truncated?: boolean
           user_id: string
         }
@@ -869,13 +880,17 @@ export type Database = {
           items_done?: number
           items_total?: number
           kind?: string
+          language?: string | null
+          line_count?: number
           modified_at?: string | null
+          outline?: Json
           path?: string
           project_id?: string
           redactions?: number
           reference_date?: string | null
           size_bytes?: number
           title?: string
+          todos?: Json
           truncated?: boolean
           user_id?: string
         }
@@ -1410,6 +1425,7 @@ export type Database = {
       search_documents: {
         Args: {
           p_any?: boolean
+          p_kinds?: string[]
           p_limit?: number
           p_project?: string
           p_query: string

@@ -1,4 +1,4 @@
-import { highlightSnippet } from "@hub/core";
+import { highlightSnippet, languageLabel } from "@hub/core";
 import { Search, Sparkles } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -9,13 +9,14 @@ import { requireUser } from "@/lib/auth";
 import { allow } from "@/lib/rate-limit";
 import { relativeTime } from "@/lib/format";
 import { loadProjectOptions } from "@/lib/projects";
+import { cn } from "@/lib/utils";
 import { searchSchema } from "@/lib/validation";
 
 export const metadata: Metadata = { title: "Search documents" };
 
 export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
   const params = await searchParams;
-  const { q, project } = searchSchema.parse({ q: params.q, project: params.project });
+  const { q, project, kind } = searchSchema.parse({ q: params.q, project: params.project, kind: params.kind });
   const { user, supabase } = await requireUser();
   const [projects, ai, { data: recent }] = await Promise.all([
     loadProjectOptions(supabase),
@@ -25,14 +26,15 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
   const projectById = new Map(projects.map((p) => [p.id, p]));
 
   let hits: { chunk_id: number; document_id: string; project_id: string; heading: string | null; content: string; line: number }[] = [];
-  let docs = new Map<string, { id: string; title: string; path: string; kind: string }>();
+  let docs = new Map<string, { id: string; title: string; path: string; kind: string; language: string | null }>();
   const limited = q ? !(await allow(`search:${user.id}`, 60, 60)) : false;
   if (q && !limited) {
-    const { data } = await supabase.rpc("search_documents", { p_query: q, p_project: project, p_limit: 40 });
+    const kinds = kind === "code" ? ["code"] : kind === "notes" ? ["markdown", "text", "docx", "pdf", "pptx"] : undefined;
+    const { data } = await supabase.rpc("search_documents", { p_query: q, p_project: project, p_limit: 40, p_kinds: kinds });
     hits = data ?? [];
     const ids = [...new Set(hits.map((h) => h.document_id))];
     if (ids.length) {
-      const { data: rows } = await supabase.from("project_documents").select("id, title, path, kind").in("id", ids);
+      const { data: rows } = await supabase.from("project_documents").select("id, title, path, kind, language").in("id", ids);
       docs = new Map((rows ?? []).map((r) => [r.id, r]));
     }
   }
@@ -40,7 +42,7 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
   return (
     <>
       <PageHeader title="Search documents" description="Full-text search across every indexed project file. Accents are optional: “tien do” finds “Tiến độ”." />
-      <Card className="mb-6">
+      <Card className="mb-6 scroll-mt-6" id="ask">
         <CardHeader
           title={
             <span className="inline-flex items-center gap-1.5">
@@ -86,7 +88,7 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
         <label htmlFor="docs-q" className="sr-only">
           Search
         </label>
-        <Input id="docs-q" name="q" defaultValue={q} placeholder="e.g. hạn nộp abstract" className="min-w-0 flex-1 basis-60" maxLength={200} />
+        <Input id="docs-q" name="q" defaultValue={q} placeholder="e.g. hạn nộp abstract, parseChecklist" className="min-w-0 flex-1 basis-60" maxLength={200} autoFocus={params.focus === "1"} />
         <label htmlFor="docs-project" className="sr-only">
           Project
         </label>
@@ -98,6 +100,14 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
               {p.user_id !== user.id ? " (shared)" : ""}
             </option>
           ))}
+        </Select>
+        <label htmlFor="docs-kind" className="sr-only">
+          Kind of file
+        </label>
+        <Select id="docs-kind" name="kind" defaultValue={kind} className="w-auto">
+          <option value="all">All files</option>
+          <option value="notes">Notes and documents</option>
+          <option value="code">Source code</option>
         </Select>
         <button className={buttonClass("primary")}>
           <Search className="size-4" /> Search
@@ -130,14 +140,17 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
               const proj = projectById.get(hit.project_id);
               return (
                 <li key={hit.chunk_id}>
-                  <Link href={`/projects/${hit.project_id}/docs/${hit.document_id}`} className="block px-4 py-3 hover:bg-surface-2/60">
+                  <Link
+                    href={`/projects/${hit.project_id}/docs/${hit.document_id}${doc?.kind === "code" || doc?.kind === "text" ? `#L${hit.line}` : ""}`}
+                    className="block px-4 py-3 hover:bg-surface-2/60"
+                  >
                     <p className="flex flex-wrap items-center gap-2 text-sm">
                       {proj ? <ColorDot color={proj.color} size={8} /> : null}
                       <span className="font-medium">{doc?.title ?? "Document"}</span>
                       {hit.heading && hit.heading !== doc?.title ? <span className="text-muted">› {hit.heading}</span> : null}
-                      {doc ? <Badge className="ml-auto">{doc.kind}</Badge> : null}
+                      {doc ? <Badge className="ml-auto">{doc.kind === "code" ? languageLabel(doc.language) : doc.kind}</Badge> : null}
                     </p>
-                    <p className="mt-1 text-[13px] leading-relaxed text-muted">
+                    <p className={cn("mt-1 text-[13px] leading-relaxed text-muted", doc?.kind === "code" && "line-clamp-6 font-mono text-[12px] whitespace-pre-wrap")}>
                       {highlightSnippet(hit.content, q).map((part, index) =>
                         part.hit ? (
                           <mark key={index} className="hit text-text">

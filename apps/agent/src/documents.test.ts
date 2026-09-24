@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CloudClient } from "./cloud";
 import { HashCache, syncFolder } from "./docsync";
-import { checkFolderScope, DEFAULT_INCLUDE, extractText, folderKey, folderLabel, listFolder, pptxText, type WatchedFolder } from "./documents";
+import { isNoisyPath } from "./daemon";
+import { checkFolderScope, CODE_PRESET, DEFAULT_INCLUDE, extractText, folderKey, folderLabel, listFolder, pptxText, type WatchedFolder } from "./documents";
 
 let root: string;
 let outside: string;
@@ -73,6 +74,15 @@ beforeAll(() => {
   write("my-secrets.md", "do not read");
   write("~$report.docx", "office lock file");
   write("big.txt", "x".repeat(4 * 1024 * 1024 + 1));
+  write("app/src/main.ts", "export function main() {}\n");
+  write("app/src/util.py", "def helper():\n    pass\n");
+  write("app/Dockerfile", "FROM node:24\n");
+  write("app/config.yaml", "db:\n  password: hunter22\n");
+  write("app/package-lock.json", "{}");
+  write("app/dist/bundle.js", "minified");
+  write("app/vendor/lib/x.go", "package x");
+  write("app/public/app.min.js", "minified");
+  write("app/src/generated.ts", "x".repeat(1024 * 1024 + 1));
   writeFileSync(join(outside, "private.md"), "outside the folder");
   symlinkSync(outside, join(root, "linked"), "dir");
 });
@@ -95,6 +105,16 @@ describe("listFolder", () => {
   it("honours extra include and exclude globs", async () => {
     const listing = await listFolder({ ...folder(), include: [...DEFAULT_INCLUDE, "**/*.pdf"], exclude: ["notes/**"] });
     expect(listing.files.map((f) => f.path)).toEqual(["papers/survey.pdf", "Tiến độ.md"]);
+  });
+
+  it("indexes source files only with the --code preset, never build output, lock files or configuration", async () => {
+    const plain = await listFolder({ ...folder(), root: join(root, "app") });
+    expect(plain.files).toEqual([]);
+    const code = await listFolder({ ...folder(), root: join(root, "app"), include: CODE_PRESET });
+    expect(code.files.map((f) => `${f.path}:${f.kind}`)).toEqual(["Dockerfile:code", "src/main.ts:code", "src/util.py:code"]);
+    expect(code.skipped).toBe(1); // generated.ts is over the 1 MB source limit
+    const withConfig = await listFolder({ ...folder(), root: join(root, "app"), include: [...CODE_PRESET, "**/*.yaml"] });
+    expect(withConfig.files.map((f) => f.path)).toContain("config.yaml");
   });
 
   it("refuses to list a missing root instead of reporting an empty folder", async () => {
@@ -153,6 +173,14 @@ describe("extractText", () => {
     expect(result.text).toMatch(/^## Page 1\nIntrusion detection survey/);
   });
 
+  it("reads source files as text, redacts them, and skips binaries with a source extension", async () => {
+    const source = await extractText("code", new TextEncoder().encode('const password = "correct-horse";\nexport {};\n'));
+    expect(source).toMatchObject({ redactions: 1, error: null });
+    expect(source.text).not.toContain("correct-horse");
+    const binary = await extractText("code", new Uint8Array([0x4d, 0x41, 0x54, 0x00, 0x01, 0x02]));
+    expect(binary).toMatchObject({ text: "", error: "looks like a binary file, skipped" });
+  });
+
   it("reports unreadable files instead of throwing", async () => {
     const result = await extractText("docx", strToU8("not a zip"));
     expect(result.text).toBe("");
@@ -199,5 +227,16 @@ describe("syncFolder", () => {
     const listing = await listFolder(folder());
     expect(listing.files.every((f) => cache.get(f) !== null)).toBe(true);
     expect(calls[0]!.body.manifest).toHaveLength(3);
+  });
+});
+
+describe("isNoisyPath", () => {
+  it("ignores dependency and build folders inside a watched folder, but not the folders above it", () => {
+    const watched = join(tmpdir(), "out", "bin", "thesis");
+    expect(isNoisyPath(join(watched, "notes", "a.md"), [watched])).toBe(false);
+    expect(isNoisyPath(join(watched, "node_modules", "x", "a.md"), [watched])).toBe(true);
+    expect(isNoisyPath(join(watched, "target", "debug", "main"), [watched])).toBe(true);
+    expect(isNoisyPath(join(watched, ".git", "HEAD"), [watched])).toBe(true);
+    expect(isNoisyPath(watched, [watched])).toBe(false);
   });
 });

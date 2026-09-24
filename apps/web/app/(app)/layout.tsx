@@ -1,6 +1,8 @@
 import { LogOut } from "lucide-react";
 import Link from "next/link";
+import { PaletteButton, PaletteProvider } from "@/components/command-palette";
 import { NavLinks, type NavItem } from "@/components/nav";
+import { SignOutForm } from "@/components/sign-out-form";
 import { requireUser } from "@/lib/auth";
 import { signOut } from "./actions";
 
@@ -24,23 +26,25 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const { user } = await requireUser();
 
   return (
+    <PaletteProvider userKey={user.id.slice(0, 8)} signOutAction={signOut}>
     <div className="min-h-dvh lg:grid lg:grid-cols-[216px_minmax(0,1fr)]">
       {/* The notebook's red margin line runs the full height between the index and the page. */}
       <aside className="hidden border-r-[1.5px] border-margin lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col lg:py-6 lg:pr-3 lg:pl-5">
-        <Link href="/today" className="mb-8 block px-2 py-1" aria-label="gnouht hub, go to Today">
+        <Link href="/today" className="mb-6 block px-2 py-1" aria-label="gnouht hub, go to Today">
           <Wordmark />
         </Link>
+        <PaletteButton className="mb-4" />
         <NavLinks items={NAV} />
         <div className="mt-auto pt-3">
           <p className="truncate px-2 text-[12px] text-muted" title={user.email ?? undefined}>
             {user.email}
           </p>
-          <form action={signOut}>
+          <SignOutForm action={signOut}>
             <button className="mt-1 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-muted hover:text-danger">
               <LogOut className="size-4" aria-hidden />
               Sign out
             </button>
-          </form>
+          </SignOutForm>
         </div>
       </aside>
 
@@ -51,14 +55,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <div className="min-w-0 flex-1">
           <NavLinks items={NAV} orientation="horizontal" />
         </div>
-        <form action={signOut}>
+        <SignOutForm action={signOut}>
           <button className="rounded-md p-1.5 text-muted hover:text-danger" aria-label="Sign out">
             <LogOut className="size-4" aria-hidden />
           </button>
-        </form>
+        </SignOutForm>
       </header>
 
       <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-8 lg:py-10">{children}</main>
     </div>
+    </PaletteProvider>
   );
 }

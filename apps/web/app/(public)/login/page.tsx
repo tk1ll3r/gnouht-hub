@@ -24,7 +24,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   return (
     <Card className="w-full max-w-sm p-7">
       <div className="mb-7">
-        <h1 className="mb-2 font-hand text-[30px] leading-[3.25rem] text-accent">gnouht hub</h1>
+        <h1 className="mb-4 font-hand text-[30px] leading-[3.25rem] text-accent">gnouht hub</h1>
         <p className="text-[14px] text-muted">Your semester in one notebook: classes, deadlines, projects and study groups.</p>
       </div>
 

@@ -9,6 +9,32 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      agent_nonces: {
+        Row: {
+          device_id: string
+          nonce: string
+          seen_at: string
+        }
+        Insert: {
+          device_id: string
+          nonce: string
+          seen_at?: string
+        }
+        Update: {
+          device_id?: string
+          nonce?: string
+          seen_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_nonces_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_log: {
         Row: {
           action: string
@@ -256,6 +282,66 @@ export type Database = {
           },
         ]
       }
+      device_pairing_codes: {
+        Row: {
+          code_hash: string
+          created_at: string
+          expires_at: string
+          used_at: string | null
+          user_id: string
+        }
+        Insert: {
+          code_hash: string
+          created_at?: string
+          expires_at: string
+          used_at?: string | null
+          user_id: string
+        }
+        Update: {
+          code_hash?: string
+          created_at?: string
+          expires_at?: string
+          used_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      devices: {
+        Row: {
+          agent_version: string | null
+          created_at: string
+          id: string
+          last_seen_at: string | null
+          name: string
+          platform: string | null
+          secret_ciphertext: string
+          status: Json
+          user_id: string
+        }
+        Insert: {
+          agent_version?: string | null
+          created_at?: string
+          id?: string
+          last_seen_at?: string | null
+          name: string
+          platform?: string | null
+          secret_ciphertext: string
+          status?: Json
+          user_id: string
+        }
+        Update: {
+          agent_version?: string | null
+          created_at?: string
+          id?: string
+          last_seen_at?: string | null
+          name?: string
+          platform?: string | null
+          secret_ciphertext?: string
+          status?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       events: {
         Row: {
           all_day: boolean
@@ -341,6 +427,39 @@ export type Database = {
           },
         ]
       }
+      manual_quotas: {
+        Row: {
+          id: string
+          limit_value: number
+          name: string
+          resets_on: string | null
+          unit: string
+          updated_at: string
+          used: number
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          limit_value: number
+          name: string
+          resets_on?: string | null
+          unit?: string
+          updated_at?: string
+          used?: number
+          user_id?: string
+        }
+        Update: {
+          id?: string
+          limit_value?: number
+          name?: string
+          resets_on?: string | null
+          unit?: string
+          updated_at?: string
+          used?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           ai_consent_at: string | null
@@ -380,6 +499,83 @@ export type Database = {
           period_times?: Json
           timezone?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      quota_snapshots: {
+        Row: {
+          account_label: string
+          captured_at: string
+          connection_id: string
+          device_id: string
+          id: number
+          plan: string | null
+          provider: string
+          remaining_pct: number | null
+          reset_at: string | null
+          total: number | null
+          unlimited: boolean
+          used: number | null
+          user_id: string
+          window_label: string
+        }
+        Insert: {
+          account_label: string
+          captured_at: string
+          connection_id: string
+          device_id: string
+          id?: never
+          plan?: string | null
+          provider: string
+          remaining_pct?: number | null
+          reset_at?: string | null
+          total?: number | null
+          unlimited?: boolean
+          used?: number | null
+          user_id: string
+          window_label: string
+        }
+        Update: {
+          account_label?: string
+          captured_at?: string
+          connection_id?: string
+          device_id?: string
+          id?: never
+          plan?: string | null
+          provider?: string
+          remaining_pct?: number | null
+          reset_at?: string | null
+          total?: number | null
+          unlimited?: boolean
+          used?: number | null
+          user_id?: string
+          window_label?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quota_snapshots_device_id_user_id_fkey"
+            columns: ["device_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
+      rate_limits: {
+        Row: {
+          bucket: string
+          hits: number
+          window_start: string
+        }
+        Insert: {
+          bucket: string
+          hits: number
+          window_start: string
+        }
+        Update: {
+          bucket?: string
+          hits?: number
+          window_start?: string
         }
         Relationships: []
       }
@@ -502,11 +698,74 @@ export type Database = {
           },
         ]
       }
+      usage_daily: {
+        Row: {
+          cost_usd: number
+          day: string
+          input_tokens: number
+          model: string
+          output_tokens: number
+          provider: string
+          requests: number
+          user_id: string
+        }
+        Insert: {
+          cost_usd?: number
+          day: string
+          input_tokens?: number
+          model: string
+          output_tokens?: number
+          provider: string
+          requests?: number
+          user_id: string
+        }
+        Update: {
+          cost_usd?: number
+          day?: string
+          input_tokens?: number
+          model?: string
+          output_tokens?: number
+          provider?: string
+          requests?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
-      [_ in never]: never
+      quota_latest: {
+        Row: {
+          account_label: string | null
+          captured_at: string | null
+          connection_id: string | null
+          device_id: string | null
+          id: number | null
+          plan: string | null
+          provider: string | null
+          remaining_pct: number | null
+          reset_at: string | null
+          total: number | null
+          unlimited: boolean | null
+          used: number | null
+          user_id: string | null
+          window_label: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quota_snapshots_device_id_user_id_fkey"
+            columns: ["device_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id", "user_id"]
+          },
+        ]
+      }
     }
     Functions: {
+      hit_rate_limit: {
+        Args: { p_bucket: string; p_limit: number; p_window_seconds: number }
+        Returns: boolean
+      }
       hook_before_user_created: { Args: { event: Json }; Returns: Json }
     }
     Enums: {

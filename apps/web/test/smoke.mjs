@@ -89,7 +89,7 @@ await admin.from("tasks").insert([
 ]);
 
 // 5. Authenticated pages render
-for (const path of ["/today", "/courses", `/courses/${course.id}`, "/tasks", "/calendar", "/settings"]) {
+for (const path of ["/today", "/courses", `/courses/${course.id}`, "/tasks", "/calendar", "/quota", "/settings"]) {
   const res = await get(path);
   const html = await res.text();
   check(res.status === 200, `GET ${path}`, String(res.status));

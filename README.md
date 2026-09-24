@@ -28,6 +28,19 @@ node scripts/dev-env.mjs    # writes apps/web/.env.local (never printed)
 npm run dev                 # http://localhost:3000 — sign in as owner@example.com, email at http://127.0.0.1:54324
 ```
 
+## Local agent (Windows)
+
+```bash
+npm run build -w @hub/agent
+node apps/agent/dist/hub-agent.mjs pair --hub https://hub.gnouht.space   # code from Settings → Devices
+node apps/agent/dist/hub-agent.mjs login-9router                          # password → Credential Manager
+node apps/agent/dist/hub-agent.mjs login-uit                              # UIT password used once, only the Moodle token is kept
+node apps/agent/dist/hub-agent.mjs install-startup                        # run at logon (Startup folder, no admin)
+```
+
+The agent only makes outbound HTTPS requests signed with HMAC-SHA256 (timestamp + one-time nonce), so
+9router and your files are never exposed to the internet.
+
 ## Checks
 
 ```bash

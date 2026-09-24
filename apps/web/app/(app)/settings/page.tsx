@@ -1,13 +1,15 @@
-import { CalendarDays, Link2, RefreshCw, Shield } from "lucide-react";
+import { CalendarDays, Link2, Monitor, RefreshCw, Shield } from "lucide-react";
 import type { Metadata } from "next";
+import { DevicePairing } from "@/components/device-pairing";
 import { InlineAction } from "@/components/forms";
 import { IcsSourceForm, PeriodsForm, ProfileForm } from "@/components/settings-forms";
 import { Badge, buttonClass, Card, CardBody, CardHeader, EmptyState, PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { loadWorkspace, periodsOf } from "@/lib/data";
 import { googleConfigured } from "@/lib/env";
-import { formatDue, relativeTime } from "@/lib/format";
+import { formatDue, isRecent, relativeTime } from "@/lib/format";
 import { deleteSource, saveGoogleCalendars, syncSourceNow, toggleSource } from "./actions";
+import { revokeDevice } from "./device-actions";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -24,9 +26,10 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const params = await searchParams;
   const { user, supabase } = await requireUser();
   const ws = await loadWorkspace(supabase, user.id);
-  const [{ data: sources }, { data: auditRows }] = await Promise.all([
+  const [{ data: sources }, { data: auditRows }, { data: devices }] = await Promise.all([
     supabase.from("calendar_sources").select("*").order("created_at"),
     supabase.from("audit_log").select("id, at, action, entity, meta").order("at", { ascending: false }).limit(10),
+    supabase.from("devices").select("id, name, platform, agent_version, status, last_seen_at").order("created_at"),
   ]);
   const noticeKey = typeof params.connected === "string" ? params.connected : typeof params.error === "string" ? params.error : null;
   const notice = noticeKey ? NOTICES[noticeKey] : null;
@@ -133,6 +136,47 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
           <CardBody className="border-t border-border">
             <h3 className="mb-3 text-sm font-semibold">Add an iCal feed</h3>
             <IcsSourceForm />
+          </CardBody>
+        </Card>
+
+        <Card id="devices" className="lg:col-span-2">
+          <CardHeader
+            title={
+              <span className="inline-flex items-center gap-1.5">
+                <Monitor className="size-4" /> Devices
+              </span>
+            }
+            description="The hub agent on your PC reads 9router quota, project documents and UIT data. It only makes outbound, signed requests."
+          />
+          {devices?.length ? (
+            <ul className="divide-y divide-border">
+              {devices.map((device) => {
+                const status = (device.status ?? {}) as { ninerouter?: { reachable?: boolean; loggedIn?: boolean } };
+                const online = isRecent(device.last_seen_at, 15 * 60_000);
+                return (
+                  <li key={device.id} className="flex flex-wrap items-center gap-2 px-4 py-3 text-sm">
+                    <span className="font-medium">{device.name}</span>
+                    <Badge tone={online ? "ok" : "neutral"}>{online ? "online" : "offline"}</Badge>
+                    {status.ninerouter ? (
+                      <Badge tone={status.ninerouter.loggedIn ? "ok" : "warn"}>
+                        9router {status.ninerouter.reachable ? (status.ninerouter.loggedIn ? "connected" : "needs login") : "unreachable"}
+                      </Badge>
+                    ) : null}
+                    <span className="text-[12px] text-muted">
+                      {device.platform} · v{device.agent_version} · {device.last_seen_at ? `seen ${relativeTime(device.last_seen_at)}` : "never seen"}
+                    </span>
+                    <span className="ml-auto">
+                      <InlineAction action={revokeDevice} fields={{ id: device.id }} confirm="Revoke this device? It will stop syncing immediately." variant="danger">
+                        Revoke
+                      </InlineAction>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+          <CardBody className={devices?.length ? "border-t border-border" : undefined}>
+            <DevicePairing />
           </CardBody>
         </Card>
 

@@ -33,3 +33,8 @@ export function relativeTime(date: Date | string, now: Date = new Date()): strin
   const unit = abs < 60 ? `${abs}m` : abs < 48 * 60 ? `${Math.round(abs / 60)}h` : `${Math.round(abs / 1440)}d`;
   return diff >= 0 ? `in ${unit}` : `${unit} ago`;
 }
+
+/** True when an ISO timestamp is within `ms` of now (kept outside components so render stays pure). */
+export function isRecent(iso: string | null | undefined, ms: number): boolean {
+  return Boolean(iso) && Date.now() - new Date(iso!).getTime() < ms;
+}

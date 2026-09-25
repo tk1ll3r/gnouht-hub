@@ -83,15 +83,15 @@ export default async function QuotaPage() {
   }
 
   const byDay = new Map<string, { input: number; output: number }>();
-  const byModel = new Map<string, { requests: number; input: number; output: number; cost: number }>();
+  const byModel = new Map<string, { provider: string; model: string; requests: number; input: number; output: number; cost: number }>();
   for (const row of usage ?? []) {
     const day = byDay.get(row.day) ?? { input: 0, output: 0 };
     day.input += Number(row.input_tokens);
     day.output += Number(row.output_tokens);
     byDay.set(row.day, day);
     if (row.day >= addDaysToKey(zonedDateKey(now, tz), -6)) {
-      const key = `${row.provider} · ${row.model}`;
-      const model = byModel.get(key) ?? { requests: 0, input: 0, output: 0, cost: 0 };
+      const key = `${row.provider}/${row.model}`;
+      const model = byModel.get(key) ?? { provider: row.provider, model: row.model, requests: 0, input: 0, output: 0, cost: 0 };
       model.requests += row.requests;
       model.input += Number(row.input_tokens);
       model.output += Number(row.output_tokens);
@@ -133,7 +133,7 @@ export default async function QuotaPage() {
                       <Gauge className="size-4 text-muted" /> {first.provider}
                     </span>
                   }
-                  description={[first.account_label, first.plan].filter(Boolean).join(" · ")}
+                  description={[first.account_label, first.plan].filter(Boolean).join(", ")}
                 />
                 <CardBody className="flex flex-col gap-3">
                   {list.map((w) => {
@@ -146,13 +146,13 @@ export default async function QuotaPage() {
                           <span className="font-medium">{w.window_label}</span>
                           <span className="text-muted">
                             {w.unlimited ? "unlimited" : remaining == null ? "unknown" : `${Math.round(remaining)}% left`}
-                            {w.used != null && w.total ? ` · ${w.used}/${w.total}` : ""}
+                            {w.used != null && w.total ? `, ${w.used} of ${w.total}` : ""}
                           </span>
                         </div>
                         <ProgressBar value={(used ?? 0) / 100} tone={toneFor(remaining ?? null)} label={`${w.window_label} used`} />
                         {resetIn != null ? (
                           <p className="mt-1 text-[12px] text-muted">
-                            {resetIn > 0 ? `Resets in ${formatDuration(resetIn)} (${formatZoned(new Date(w.reset_at!), "EEE HH:mm", tz)})` : "Reset time passed — refreshing"}
+                            {resetIn > 0 ? `Resets in ${formatDuration(resetIn)} (${formatZoned(new Date(w.reset_at!), "EEE HH:mm", tz)})` : "Resetting now"}
                           </p>
                         ) : null}
                       </div>
@@ -188,7 +188,9 @@ export default async function QuotaPage() {
                 <tbody className="divide-y divide-border">
                   {models.slice(0, 10).map(([key, m]) => (
                     <tr key={key}>
-                      <td className="max-w-0 truncate py-1.5 pr-2">{key}</td>
+                      <td className="max-w-0 truncate py-1.5 pr-2">
+                        {m.model} <span className="text-muted">{m.provider}</span>
+                      </td>
                       <td className="py-1.5 text-right tabular-nums">{m.requests.toLocaleString()}</td>
                       <td className="py-1.5 text-right tabular-nums">{(m.input + m.output).toLocaleString()}</td>
                       <td className="py-1.5 text-right tabular-nums">${m.cost.toFixed(2)}</td>

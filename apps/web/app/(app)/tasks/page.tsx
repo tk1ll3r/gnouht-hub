@@ -1,20 +1,20 @@
-import { rankTasks, TIER_LABELS, type UrgencyTier } from "@hub/core";
+import { rankTasks, TIER_LABELS } from "@hub/core";
 import { ExternalLink, FileText, Trash2 } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { InlineAction } from "@/components/forms";
 import { TaskControls, TaskForm } from "@/components/task-forms";
-import { Badge, Card, CardBody, CardHeader, ColorDot, EmptyState, PageHeader } from "@/components/ui";
+import { Badge, Card, CardBody, CardHeader, ColorDot, EmptyState, Meta, PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
-import { busyIntervals, classesBetween, loadEvents, loadTasks, loadWorkspace, toRankable } from "@/lib/data";
+import { busyIntervals, classesBetween, loadEvents, loadProjectLabels, loadTasks, loadWorkspace, toRankable } from "@/lib/data";
 import { formatDue } from "@/lib/format";
+import { canPlanTask } from "@/lib/projects";
 import { cn } from "@/lib/utils";
 import { deleteTask } from "./actions";
 
 export const metadata: Metadata = { title: "Tasks" };
 
 const VIEWS = ["open", "done", "all"] as const;
-const TIER_TONE: Record<UrgencyTier, "danger" | "warn" | "ok"> = { urgent: "danger", soon: "warn", ok: "ok" };
 
 export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
   const params = await searchParams;
@@ -23,9 +23,13 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
   const ws = await loadWorkspace(supabase, user.id);
   const now = new Date();
   const horizon = new Date(now.getTime() + 60 * 86_400_000);
-  const [rows, events] = await Promise.all([loadTasks(supabase, user.id, { includeDone: view !== "open" }), loadEvents(supabase, user.id, now, horizon)]);
+  const [rows, events, projects] = await Promise.all([
+    loadTasks(supabase, user.id, { includeDone: view !== "open" }),
+    loadEvents(supabase, user.id, now, horizon),
+    loadProjectLabels(supabase, user.id),
+  ]);
 
-  const tasks = toRankable(rows, ws.courses);
+  const tasks = toRankable(rows, ws.courses, projects, user.id);
   const busy = busyIntervals(classesBetween(ws, now, horizon), events);
   const { ranked } = rankTasks(tasks, { now, busy, ...ws.options });
   const rankById = new Map(ranked.map((r) => [r.task.id, r]));
@@ -43,7 +47,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
 
   return (
     <>
-      <PageHeader title="Tasks" description="Manual tasks, Moodle deadlines and project checklists in one list." />
+      <PageHeader title="Tasks" description="Your own tasks, Moodle deadlines and the project tasks assigned to you, in one list." />
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <Card>
           <div className="flex gap-1 border-b border-border px-3 py-2 text-[13px]">
@@ -72,12 +76,19 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         {t.course ? (
-                          <span className="inline-flex items-center gap-1 font-mono text-[12px] text-muted">
+                          <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-muted">
                             <ColorDot color={t.course.color} size={8} />
                             {t.course.code}
                           </span>
                         ) : null}
+                        {t.project ? (
+                          <Link href={`/projects/${t.project.id}`} className="inline-flex items-center gap-1 text-[12px] text-muted hover:text-text">
+                            <ColorDot color={t.project.color} size={8} />
+                            {t.project.name}
+                          </Link>
+                        ) : null}
                         <span className={cn("font-medium", finished && "text-muted line-through")}>{t.title}</span>
+                        {t.assigned ? <Badge tone="accent">assigned to you</Badge> : null}
                         {t.row.source === "moodle" ? <Badge>Moodle</Badge> : null}
                         {t.row.source === "markdown" ? (
                           <Badge>
@@ -90,22 +101,26 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
                           </a>
                         ) : null}
                       </div>
-                      <p className="mt-0.5 text-[12px] text-muted">
-                        {t.dueAt ? formatDue(t.dueAt, ws.options.tz, now) : "No deadline"}
-                        {rank ? (
-                          <>
-                            {" · "}
-                            <Badge tone={TIER_TONE[rank.tier]} className="align-middle">
+                      <Meta
+                        className="mt-0.5 text-[12.5px] text-muted"
+                        items={[
+                          t.dueAt ? formatDue(t.dueAt, ws.options.tz, now) : "No deadline",
+                          rank ? (
+                            <span className={cn("font-medium", rank.overdue || rank.tier === "urgent" ? "text-danger" : rank.tier === "soon" ? "text-warn" : "text-ok")}>
                               {rank.overdue ? "Overdue" : TIER_LABELS[rank.tier]}
-                            </Badge>{" "}
-                            {rank.reason}
-                          </>
-                        ) : null}
-                      </p>
+                            </span>
+                          ) : null,
+                          rank?.reason,
+                        ]}
+                      />
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
-                      <TaskControls id={t.id} status={t.status} progress={t.progress} estimate={t.estimateHours} />
-                      {t.row.source === "manual" ? (
+                      {t.editable ? (
+                        <TaskControls id={t.id} status={t.status} progress={t.progress} estimate={t.estimateHours} />
+                      ) : (
+                        <span className="text-[12px] text-muted">Locked by the lead</span>
+                      )}
+                      {t.row.source === "manual" && (!t.project || canPlanTask(t.project.role, t.row)) ? (
                         <InlineAction action={deleteTask} fields={{ id: t.id }} confirm="Delete this task?" title="Delete task">
                           <Trash2 className="size-3.5" aria-label="Delete" />
                         </InlineAction>
@@ -121,7 +136,11 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
         <Card className="h-fit">
           <CardHeader title="New task" />
           <CardBody>
-            <TaskForm courses={ws.courses.map((c) => ({ id: c.id, code: c.code, name: c.name }))} />
+            <TaskForm
+              courses={ws.courses.map((c) => ({ id: c.id, code: c.code, name: c.name }))}
+              projects={projects.filter((p) => p.role !== "viewer").map((p) => ({ id: p.id, name: p.name }))}
+              autoFocus={params.new === "1"}
+            />
           </CardBody>
         </Card>
       </div>

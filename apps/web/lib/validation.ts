@@ -106,6 +106,7 @@ export const sessionSchema = z
 export const taskSchema = z.object({
   title: z.string().trim().min(1, "Required").max(300),
   course_id: z.union([uuid, z.literal("")]).optional(),
+  project_id: z.union([uuid, z.literal("")]).optional(),
   kind: z.enum(TASK_KINDS),
   due_date: dateKey.optional().or(z.literal("")),
   due_time: clock.optional().or(z.literal("")),
@@ -144,4 +145,51 @@ export const icsSourceSchema = z.object({
   name: z.string().trim().min(1, "Required").max(80),
   url: z.string().trim().min(1, "Required").max(2000),
   flavor: z.enum(["moodle", "generic"]),
+});
+
+export const projectSchema = z.object({
+  name: z.string().trim().min(1, "Required").max(100),
+  slug: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9][a-z0-9-]{1,39}$/, "2–40 lower-case letters, digits and dashes")
+    .optional()
+    .or(z.literal(""))
+    .transform((v) => v || undefined),
+  kind: z.enum(["course", "research", "ctf", "personal"]).catch("personal"),
+  description: optionalText(2000),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Pick a colour"),
+  course_id: z
+    .union([uuid, z.literal("")])
+    .optional()
+    .transform((v) => v || null),
+  status: z.enum(["active", "done", "archived"]),
+  due_on: dateKey
+    .optional()
+    .or(z.literal(""))
+    .transform((v) => v || null),
+});
+
+export const milestoneSchema = z.object({
+  project_id: uuid,
+  title: z.string().trim().min(1, "Required").max(300),
+  due_on: dateKey,
+  hard: z.preprocess((v) => v === "on" || v === "true", z.boolean()),
+});
+
+export const teamTaskSchema = z.object({
+  project_id: uuid,
+  title: z.string().trim().min(1, "Required").max(300),
+  kind: z.enum(["task", "assignment", "quiz", "exam", "report", "milestone"]).catch("task"),
+  due_date: dateKey.optional().or(z.literal("")).transform((v) => v || null),
+  assignee_id: z.union([uuid, z.literal("")]).optional().transform((v) => v || null),
+  permission: z.enum(["team", "assignee", "owner"]).catch("team"),
+  notes: optionalText(5000),
+});
+
+export const searchSchema = z.object({
+  q: z.string().trim().max(200).catch(""),
+  project: uuid.optional().catch(undefined),
+  kind: z.enum(["all", "notes", "code"]).catch("all"),
 });

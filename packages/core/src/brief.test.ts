@@ -25,11 +25,11 @@ describe("buildHeuristicBrief", () => {
       labelOf: (task) => task.course,
     });
 
-    expect(brief.headline).toBe("Thursday 24 Sep — 2 urgent, 2 coming up. 11.5h free today.");
+    expect(brief.headline).toBe("Thursday 24 Sep: 2 urgent, 2 coming up. 11.5h free today.");
     expect(brief.counts).toEqual({ urgent: 2, soon: 2, ok: 0, undated: 2 });
-    expect(brief.markdown).toContain("1. **NT101 · Old** — Overdue by 3d 10h");
-    expect(brief.markdown).toContain("- 07:30–09:45 · NT219 lecture (B1.12)");
-    expect(brief.markdown).toContain("1 overdue item — finish or re-plan it.");
+    expect(brief.markdown).toContain("1. **NT101 Old.** Overdue by 3d 10h");
+    expect(brief.markdown).toContain("- **07:30–09:45** NT219 lecture (B1.12)");
+    expect(brief.markdown).toContain("1 overdue item: finish or re-plan it.");
     expect(brief.markdown).toContain("2 open tasks have no deadline.");
   });
 });

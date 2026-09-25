@@ -2,6 +2,8 @@
 // exported separately as "@hub/core/protocol" and never pulled into browser bundles.
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
+import { SYMBOL_KINDS, TODO_TAGS } from "./code";
+import { DOCUMENT_KINDS, isSafeRelativePath } from "./documents";
 
 export const SIGNATURE_HEADERS = {
   device: "x-hub-device",
@@ -70,6 +72,15 @@ export const pairResponseSchema = z.object({ deviceId: z.uuid(), secret: z.strin
 export const heartbeatSchema = z.object({
   agentVersion: z.string().max(20),
   ninerouter: z.object({ reachable: z.boolean(), loggedIn: z.boolean() }),
+  documents: z
+    .object({
+      folders: z.number().int().min(0).max(100),
+      lastSyncAt: z.iso.datetime({ offset: true }).nullable(),
+      errors: z.array(z.string().max(200)).max(10),
+    })
+    .optional(),
+  /** Whether this agent can run AI jobs (9router API key and model configured). */
+  ai: z.object({ configured: z.boolean(), model: z.string().max(120).nullable() }).optional(),
 });
 
 const finiteOrNull = z.number().finite().nullable();
@@ -131,24 +142,46 @@ export const uitPayloadSchema = z.object({
 });
 export type UitPayload = z.infer<typeof uitPayloadSchema>;
 
-/** Masks an email-like label: "nguyenvana@gmail.com" → "ng…@gmail.com". */
-export function maskLabel(label: string): string {
-  const at = label.indexOf("@");
-  if (at > 0) return `${label.slice(0, Math.min(2, at))}…${label.slice(at)}`.slice(0, 120);
-  return label.slice(0, 120);
-}
+// ── project documents ───────────────────────────────────────────────────────
 
-// ── documents (M3) ──────────────────────────────────────────────────────────
-
+export const MAX_PROJECT_FILES = 1000;
 export const PROJECT_SLUG = /^[a-z0-9][a-z0-9-]{1,39}$/;
-export const DOCUMENT_EXTENSIONS = ["md", "markdown", "txt", "tex", "docx", "pdf", "xlsx", "pptx"] as const;
+const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+export const relativePathSchema = z.string().refine(isSafeRelativePath, "invalid relative path");
+
+/**
+ * Step 1: the agent lists every indexable file of a watched folder (path + content hash). The folder maps
+ * to a project: an explicit `projectId` (a team project the device owner can edit), else the owner's
+ * project already linked to this folder, else the owner's project with this slug, else a new one.
+ */
+export const projectSyncSchema = z.object({
+  /** sha256 of the folder's normalised absolute path: recognises the folder without revealing it. */
+  folderKey: sha256Schema,
+  name: z.string().trim().min(1).max(100),
+  slug: z.string().regex(PROJECT_SLUG),
+  projectId: z.uuid().nullable().default(null),
+  /** Last path segments only, for display ("…/Research/IDS"). */
+  folderLabel: z.string().max(200),
+  manifest: z
+    .array(z.object({ path: relativePathSchema, hash: sha256Schema }))
+    .max(MAX_PROJECT_FILES)
+    .refine((files) => new Set(files.map((f) => f.path)).size === files.length, "duplicate paths"),
+});
+export type ProjectSync = z.infer<typeof projectSyncSchema>;
+export const projectSyncResponseSchema = z.object({
+  projectId: z.uuid(),
+  archived: z.boolean(),
+  /** Paths whose stored hash differs. The agent intersects this with its own listing before reading anything. */
+  need: z.array(z.string()),
+});
 
 const checklistItemSchema = z.object({
   key: z.string().regex(/^[0-9a-f]{16}$/),
-  text: z.string().min(1).max(300),
+  text: z.string().min(1).max(1000),
   status: z.enum(["todo", "doing", "attention", "done", "cut"]),
   section: z.string().max(300).nullable(),
   line: z.number().int().positive(),
+  indent: z.number().int().min(0).max(100).default(0),
 });
 
 const milestoneSchema = z.object({
@@ -158,27 +191,87 @@ const milestoneSchema = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   hard: z.boolean(),
   line: z.number().int().positive(),
+  /** Ticked in the file (checklist items with a date). */
+  done: z.boolean().default(false),
+  origin: z.enum(["table", "checklist"]).default("table"),
 });
 
+const outlineSchema = z.object({
+  name: z.string().min(1).max(200),
+  kind: z.enum(SYMBOL_KINDS),
+  line: z.number().int().positive(),
+  depth: z.number().int().min(0).max(8),
+});
+
+const todoSchema = z.object({ tag: z.enum(TODO_TAGS), text: z.string().min(1).max(200), line: z.number().int().positive() });
+
+/** One analysed file, as the agent sends it (text already redacted on the PC). */
 export const documentSchema = z.object({
-  /** Path relative to the root, forward slashes, e.g. "Research/Checklist.md". */
-  path: z.string().min(1).max(1000),
+  path: relativePathSchema,
   title: z.string().min(1).max(300),
-  ext: z.enum(DOCUMENT_EXTENSIONS),
-  sizeBytes: z.number().int().min(0),
-  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  /** Lower-case extension, or a short stand-in for extension-less files ("docker" for a Dockerfile). */
+  ext: z.string().regex(/^[a-z0-9]{1,8}$/),
+  kind: z.enum(DOCUMENT_KINDS),
+  language: z.string().regex(/^[a-z0-9+#-]{1,24}$/).nullable(),
+  sizeBytes: z.number().int().min(0).max(200 * 1024 * 1024),
+  sha256: sha256Schema,
   modifiedAt: z.iso.datetime({ offset: true }),
   excerpt: z.string().max(600),
+  /** The text in order: concatenated, the chunks give the extracted file back (line numbers stay exact). */
   chunks: z.array(z.string().max(4000)).max(150),
   checklist: z.array(checklistItemSchema).max(2000).nullable(),
   milestones: z.array(milestoneSchema).max(300),
+  lineCount: z.number().int().min(0).max(10_000_000),
+  outline: z.array(outlineSchema).max(500),
+  todos: z.array(todoSchema).max(200),
+  truncated: z.boolean(),
+  /** Secrets the agent removed (the hub redacts again and adds its own count). */
+  redactions: z.number().int().min(0).max(100_000).default(0),
+  error: z.string().max(200).nullable(),
 });
 export type DocumentPayloadItem = z.infer<typeof documentSchema>;
 
-export const documentPayloadSchema = z.object({
-  /** Project the root is mapped to (created on first sync if missing). */
-  project: z.object({ slug: z.string().regex(PROJECT_SLUG), name: z.string().min(1).max(100) }).nullable(),
-  documents: z.array(documentSchema).max(40),
-  removed: z.array(z.string().min(1).max(1000)).max(1000),
+/** Step 2: changed files of one folder, in batches. */
+export const documentUploadSchema = z.object({
+  projectId: z.uuid(),
+  folderKey: sha256Schema,
+  documents: z.array(documentSchema).min(1).max(40),
 });
-export type DocumentPayload = z.infer<typeof documentPayloadSchema>;
+export type DocumentUpload = z.infer<typeof documentUploadSchema>;
+
+// ── AI jobs ─────────────────────────────────────────────────────────────────
+
+export const AI_JOB_KINDS = ["brief", "project_summary", "ask_docs"] as const;
+
+/** A job as handed to the agent: messages built by the hub, relayed verbatim to 9router. */
+export const aiJobSchema = z.object({
+  id: z.uuid(),
+  kind: z.enum(AI_JOB_KINDS),
+  messages: z
+    .array(z.object({ role: z.enum(["system", "user"]), content: z.string().min(1).max(60_000) }))
+    .min(1)
+    .max(8),
+  maxOutputTokens: z.number().int().min(64).max(4096),
+  model: z.string().max(120).nullable(),
+});
+export type AiJob = z.infer<typeof aiJobSchema>;
+export const aiClaimResponseSchema = z.object({ job: aiJobSchema.nullable() });
+
+export const aiResultSchema = z.object({
+  jobId: z.uuid(),
+  ok: z.boolean(),
+  output: z.string().max(20_000),
+  usage: z
+    .object({ promptTokens: z.number().int().min(0).max(10_000_000), completionTokens: z.number().int().min(0).max(10_000_000) })
+    .nullable(),
+  model: z.string().max(120).nullable(),
+  error: z.string().max(300).nullable(),
+});
+export type AiResult = z.infer<typeof aiResultSchema>;
+
+/** Masks an email-like label: "nguyenvana@gmail.com" → "ng…@gmail.com". */
+export function maskLabel(label: string): string {
+  const at = label.indexOf("@");
+  if (at > 0) return `${label.slice(0, Math.min(2, at))}…${label.slice(at)}`.slice(0, 120);
+  return label.slice(0, 120);
+}

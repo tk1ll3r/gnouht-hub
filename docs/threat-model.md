@@ -1,10 +1,10 @@
-# Threat model (v0, milestone M1)
+# Threat model (v1, milestones M1–M7)
 
 ## Assets
 
 Google refresh tokens; secret iCal URLs (Moodle export URLs embed a personal token); users' tasks,
 timetable and calendar events; project documents (M3); 9router credentials and quota (M2, which stay on the
-owner's PC); friends' data (M4).
+owner's PC); friends' data (M4); AI prompts and answers (M5).
 
 ## Trust boundaries
 
@@ -33,8 +33,51 @@ owner's PC); friends' data (M4).
 | Elevation | XSS | Strict nonce CSP, no inline styles, react-markdown without raw HTML, escaped email HTML | smoke test, Vitest `email` |
 | Elevation | Clickjacking | `frame-ancestors 'none'` and `X-Frame-Options: DENY` | smoke test |
 | Elevation | Open redirect after login | `safeNextPath`, redirects built from `APP_URL` | Vitest, smoke test |
+| Spoofing | Forged agent request | HMAC-SHA256 over method, path, timestamp, nonce and body hash; secret stored encrypted (AAD `device:<id>`) | agent e2e |
+| Spoofing | Replayed agent request | ±5 min timestamp window + per-device nonce table | agent e2e |
+| Elevation | Agent writing into another user's project | Project looked up by the device owner's id; composite FKs on every child row | pgTAP `040` |
+| Info disclosure | Hub (or an attacker controlling it) steering the agent to read other files | The agent reads only paths from its own listing of the watched folder; symlinks/junctions are never followed; the hub's `need` list is intersected with that listing | Vitest agent `documents` |
+| Info disclosure | Credentials pasted into notes get uploaded | Secret-looking file names and dot files are never listed; regex redaction (keys, tokens, JWTs, private keys, URL passwords, `password=`) on the PC and again on ingest | Vitest `redact`, agent e2e |
+| Info disclosure | Watching an over-broad folder | `project add` refuses drive roots and the home folder and previews what will be indexed; PDFs/slides are opt-in | Vitest agent `documents` |
+| Tampering | Path traversal through a document path | Paths are labels only (never opened on the server), validated by zod and a DB check | Vitest `documents`, pgTAP `040` |
+| Info disclosure | Search returning other users' passages | `search_documents` is SECURITY INVOKER, so RLS applies | pgTAP `040` |
+| Tampering | tsquery syntax injection through the search box | The query is rebuilt from folded alphanumeric words only | pgTAP `040`, Vitest `search` |
+| Elevation | Stored XSS from document Markdown | react-markdown with raw HTML skipped, only http(s) links (`noopener noreferrer nofollow`), no images | smoke test |
+| Spoofing | Registering through someone else's invite | Invites are bound to one email; the sign-up hook admits only pending invites for that exact address, and `accept_group_invite` checks the signed-in email | pgTAP `050`, smoke test |
+| Info disclosure | A forwarded or leaked invite link | The token (24 random bytes) is stored hashed and only identifies the invite; accepting also needs the invited address; links expire (≤14 days), are single-use and revocable; the landing page masks the address and is rate limited | pgTAP `050`, smoke test |
+| Info disclosure | Group members reading each other's private data | Reads widen only for projects explicitly shared (`shared_project_ids()`); tasks, calendars and profiles stay owner-only; the roster RPC returns display names only | pgTAP `050`, smoke test |
+| Info disclosure | Free-time finder leaking schedules | Opt-in per member; computed server-side after a membership check and rate limited; only per-hour counts leave the function, never titles or times of commitments | Vitest `availability`, smoke test |
+| Tampering | Members editing shared projects or sharing others' projects | Update/delete policies stay owner-only; the share insert policy requires owning the project and belonging to the group | pgTAP `050` |
+| DoS / lockout | A group losing its last owner | Trigger blocks removing the last owner while the group exists; limits of 20 groups per user, 30 members and 50 pending invites per group | pgTAP `050` |
+| Elevation | Open redirect through email links | `redirect_to` is honoured only on our own origin and its `next` still passes `safeNextPath` | Vitest `safe-redirect` |
+| Elevation | Prompt injection from a document (possibly a teammate's shared file) | Untrusted text is fenced with a random per-job marker (look-alikes stripped) under a system prompt that says data carries no instructions; the model has no tools; the agent never acts on output | Vitest `prompts` |
+| Info disclosure | Exfiltration through model output (image beacons, lure links) | Answers render without raw HTML or images, and no URL is clickable except `[n]` citations to documents the job actually retrieved; CSP `img-src 'self'` as a backstop | smoke test |
+| Tampering | Users writing arbitrary prompts to the queue | `enqueue_ai_job` is service-role only; prompts are built server-side from reads under the user's RLS | pgTAP `060` |
+| DoS / cost | Budget races and runaway usage | Per-user advisory lock around the budget check and reservation; daily token limit (reservation until actual usage arrives); at most 3 waiting jobs; 20 requests / 10 min per user | pgTAP `060` |
+| Spoofing / tampering | A rogue device answering someone else's job | Claims only return the device owner's jobs (SKIP LOCKED); only the claiming device may complete, once; output length-capped and stripped of control characters | pgTAP `060`, agent e2e |
+| Info disclosure | Stored excerpts outliving their use | Prompts are wiped when a job finishes, expires or is cancelled; jobs are deleted after 30 days; AI is off until the user consents (audited) | pgTAP `060` |
+| DoS | Huge folders or documents | 1000 files per folder, 30 folders, 4 MB text / 30 MB binary files, 120k characters and 400 chunks per document, 512 KB request bodies, capped `.pptx` decompression | Vitest, code review |
+| Spoofing | Stolen magic link or inbox access | Optional TOTP second factor; once enrolled, the database refuses first-factor sessions on every table and callable function (restrictive RLS), and the proxy, `requireUser` and API routes send them to the code step | pgTAP `070`, smoke test |
+| Spoofing | Guessing TOTP codes straight against Supabase Auth, which has no per-account limit | Only sessions marked by the hub after its rate-limited form (8 tries / 10 min) count as two-step; an aal2 session obtained directly from Auth reads nothing | pgTAP `070`, smoke test, `docs/pentest.md` F1 |
+| Spoofing | A stolen or forgotten session after "sign out everywhere" | The JWT's session must still exist in `auth.sessions`; revoked sessions lose access at once, not when the token expires | pgTAP `070`, smoke test, `docs/pentest.md` F2 |
+| DoS / brute force | Scripted sign-in, search, AI or write floods | Database-backed fixed-window limits per user (and per IP and hashed address for sign-in); see `docs/pentest.md` | smoke test, code review |
+| Info disclosure | Account data on request / right to erasure | Export returns only the caller's own rows under RLS (no secrets); deletion needs the typed address, revokes Google grants, hands owned groups to a member, then cascades | smoke test, pgTAP `070` |
+| Elevation | Regressions in headers or CSRF protection | ZAP baseline in CI with triaged rules; Server Actions keep Next.js' Origin check | CI `e2e`, `docs/pentest.md` |
+| Info disclosure | Source code uploaded with credentials in it | Code indexing is opt-in per folder (`--code`); configuration formats only through explicit globs; dot files (`.env`), secret-looking names, build output, vendored and lock files never listed; 1 MB cap and binary detection; the same redaction on the PC and on ingest | Vitest agent `documents`, agent e2e |
+| Elevation | XSS through a source file or a Markdown code fence | Highlighting runs on the server and yields text plus highlight.js class names only (no HTML strings, no inline styles, nothing rendered with `dangerouslySetInnerHTML`); heading anchors are slugs prefixed `h-` | Vitest `highlight`, smoke test |
+| Info disclosure | Quick-open index listing other users' files | `/api/palette` reads names and paths (never content) with the user's client under RLS, after the session check, rate limited and `no-store` | smoke test |
+| Info disclosure | Recent files and tabs left in a shared browser | Per-browser conveniences only (localStorage), keyed per user and wiped on sign-out and whenever the sign-in page loads | Playwright walkthrough |
+| Tampering | Turning someone else's TODO into your task | The action reads the file under RLS and only acts on the caller's own files; a comment becomes at most one open task | smoke test |
+| DoS | Huge or pathological source files | 1 MB per source file, 120k characters stored, 400 chunks, 500 outline entries and 200 TODOs per file; highlighting skipped past 200k characters; linear-time outline and TODO scans; fuzzy matching O(n·m) per candidate | Vitest `code`, `fuzzy` |
 
-## Open items (later milestones)
+## Residual risks
 
-Agent HMAC authentication and replay protection (M2); project-scoped RLS and invites (M4); AI prompt
-injection and budget races (M5); rate limiting, MFA enforcement, ZAP scan and a manual pentest (M6).
+- TOTP is optional. Accounts without it rest on the security of the email inbox.
+- The per-IP sign-in limit relies on the platform setting `X-Forwarded-For` (Vercel does). The per-address
+  limit applies regardless.
+- The rate limiter fails open if its database call errors (see `docs/pentest.md` F4).
+- Supabase Auth ends a user's other aal1 sessions whenever a TOTP code is verified. This is expected, but
+  it can look like a sign-out on another device.
+- Redaction is pattern-based. It also rewrites harmless code such as `password = getPassword()`, and it can
+  still miss secrets in unusual formats. Keep secrets in files the agent never lists (`.env`, `*.key`, names
+  containing "secret" or "credential").

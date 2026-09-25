@@ -24,6 +24,7 @@ import {
 import type { Database, Tables } from "@hub/core/db";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { canChangeTask, type ProjectRole } from "./projects";
 
 // Works with both the user client (RLS) and the admin client (cron) — so every query filters by user_id.
 type Client = SupabaseClient<Database>;
@@ -139,22 +140,77 @@ export async function loadEvents(client: Client, userId: string, from: Date, to:
   return data ?? [];
 }
 
+/**
+ * The caller's own work: tasks assigned to them, plus tasks they created that nobody has been assigned
+ * (personal tasks, and team tasks stay with whoever wrote them down until someone takes them).
+ */
 export async function loadTasks(client: Client, userId: string, options: { includeDone?: boolean } = {}): Promise<TaskRow[]> {
-  let query = client.from("tasks").select("*").eq("user_id", userId).order("due_at", { ascending: true, nullsFirst: false }).limit(1000);
+  let query = client
+    .from("tasks")
+    .select("*")
+    .or(`assignee_id.eq.${userId},and(user_id.eq.${userId},assignee_id.is.null)`)
+    .order("due_at", { ascending: true, nullsFirst: false })
+    .limit(1000);
   if (!options.includeDone) query = query.not("status", "in", "(done,cut)");
   const { data } = await query;
   return data ?? [];
 }
 
+export interface ProjectLabel {
+  id: string;
+  name: string;
+  color: string;
+  /** The caller's role in the project. */
+  role: ProjectRole;
+}
+
 export interface RankableTask extends UrgencyTask {
   row: TaskRow;
   course: Course | null;
+  project: ProjectLabel | null;
+  /** Whether the caller may change the task's status and progress (a locked team task may not be). */
+  editable: boolean;
+  /** Someone else wrote the task down and gave it to the caller. */
+  assigned: boolean;
 }
 
-export function toRankable(tasks: TaskRow[], courses: Course[]): RankableTask[] {
+/** Projects the caller belongs to (any role), for labels and pickers. */
+export async function loadProjectLabels(client: Client, userId: string): Promise<ProjectLabel[]> {
+  const { data } = await client.from("project_members").select("role, projects!inner(id, name, color)").eq("user_id", userId);
+  return (data ?? []).map((row) => ({ ...row.projects, role: row.role as ProjectRole }));
+}
+
+export interface UpcomingMilestone {
+  id: string;
+  title: string;
+  dueOn: string;
+  hard: boolean;
+  project: ProjectLabel;
+}
+
+/** Open milestones of the caller's active projects between two dates (inclusive), soonest first. */
+export async function loadUpcomingMilestones(client: Client, projects: ProjectLabel[], from: string, to: string): Promise<UpcomingMilestone[]> {
+  if (!projects.length) return [];
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  const { data } = await client
+    .from("milestones")
+    .select("id, title, due_on, hard, project_id, projects!inner(status)")
+    .in("project_id", [...byId.keys()])
+    .eq("done", false)
+    .eq("projects.status", "active")
+    .gte("due_on", from)
+    .lte("due_on", to)
+    .order("due_on")
+    .limit(20);
+  return (data ?? []).map((m) => ({ id: m.id, title: m.title, dueOn: m.due_on, hard: m.hard, project: byId.get(m.project_id)! }));
+}
+
+export function toRankable(tasks: TaskRow[], courses: Course[], projects: ProjectLabel[] = [], userId?: string): RankableTask[] {
   const byId = new Map(courses.map((c) => [c.id, c]));
+  const projectById = new Map(projects.map((p) => [p.id, p]));
   return tasks.map((row) => {
     const course = row.course_id ? byId.get(row.course_id) ?? null : null;
+    const project = row.project_id ? projectById.get(row.project_id) ?? null : null;
     return {
       id: row.id,
       title: row.title,
@@ -166,6 +222,9 @@ export function toRankable(tasks: TaskRow[], courses: Course[]): RankableTask[] 
       weight: course ? Number(course.weight) : 1,
       row,
       course,
+      project,
+      editable: !row.project_id || !userId || canChangeTask(project?.role ?? null, row, userId),
+      assigned: Boolean(userId && row.assignee_id === userId && row.user_id !== userId),
     };
   });
 }
@@ -181,7 +240,10 @@ export interface AgendaEntry {
   id: string;
   kind: "class" | "event" | "study";
   title: string;
-  detail: string | null;
+  /** Course code for classes, shown next to the title. */
+  code: string | null;
+  /** Secondary facts (class type, room, location). */
+  meta: string[];
   start: Date;
   end: Date;
   allDay: boolean;
@@ -197,12 +259,17 @@ export async function buildToday(client: Client, userId: string, now: Date = new
   const dayStartAt = zonedInstant(todayKey, 0, tz);
   const horizon = new Date(now.getTime() + 60 * DAY_MS);
 
-  const [events, taskRows] = await Promise.all([loadEvents(client, userId, dayStartAt, horizon), loadTasks(client, userId)]);
+  const [events, taskRows, projects] = await Promise.all([
+    loadEvents(client, userId, dayStartAt, horizon),
+    loadTasks(client, userId),
+    loadProjectLabels(client, userId),
+  ]);
+  const milestones = await loadUpcomingMilestones(client, projects, todayKey, addDaysToKey(todayKey, 14));
   const classes = classesBetween(workspace, dayStartAt, horizon);
   const busy = busyIntervals(classes, events);
   const freeOptions = { tz, dayStart, dayEnd, bufferMinutes };
 
-  const tasks = toRankable(taskRows, workspace.courses);
+  const tasks = toRankable(taskRows, workspace.courses, projects, userId);
   const { ranked, undated } = rankTasks(tasks, { now, busy, ...freeOptions });
 
   const tomorrowStart = zonedInstant(addDaysToKey(todayKey, 1), 0, tz);
@@ -229,8 +296,9 @@ export async function buildToday(client: Client, userId: string, now: Date = new
         return {
           id: `class:${c.sessionId}:${c.date}`,
           kind: "class" as const,
-          title: course ? `${course.code} · ${course.name}` : "Class",
-          detail: [c.kind !== "lecture" ? c.kind : null, c.room].filter(Boolean).join(" · ") || null,
+          title: course?.name ?? "Class",
+          code: course?.code ?? null,
+          meta: [c.kind !== "lecture" ? c.kind : null, c.room].filter((v): v is string => Boolean(v)),
           start: c.start,
           end: c.end,
           allDay: false,
@@ -244,7 +312,8 @@ export async function buildToday(client: Client, userId: string, now: Date = new
         id: `event:${e.id}`,
         kind: "event" as const,
         title: e.title,
-        detail: e.location,
+        code: null,
+        meta: e.location ? [e.location] : [],
         start: new Date(e.starts_at),
         end: new Date(e.ends_at),
         allDay: e.all_day,
@@ -256,7 +325,8 @@ export async function buildToday(client: Client, userId: string, now: Date = new
         id: `study:${b.taskId}:${b.start.toISOString()}`,
         kind: "study" as const,
         title: `Suggested: ${taskById.get(b.taskId)?.title ?? "study block"}`,
-        detail: null,
+        code: null,
+        meta: [],
         start: b.start,
         end: b.end,
         allDay: false,
@@ -269,13 +339,15 @@ export async function buildToday(client: Client, userId: string, now: Date = new
     tz,
     ranked,
     undatedCount: undated.length,
-    agenda: agenda.filter((a) => a.kind !== "study").map((a) => ({ title: a.title, start: a.start, end: a.end, allDay: a.allDay, detail: a.detail })),
+    agenda: agenda
+      .filter((a) => a.kind !== "study")
+      .map((a) => ({ title: a.code ? `${a.code} ${a.title}` : a.title, start: a.start, end: a.end, allDay: a.allDay, detail: a.meta.join(", ") || null })),
     freeHoursToday,
     clusters,
-    labelOf: (task) => task.course?.code ?? null,
+    labelOf: (task) => task.course?.code ?? task.project?.name ?? null,
   });
 
-  return { workspace, now, todayKey, ranked, undated, agenda, freeHoursToday, load, clusters, studyBlocks, brief };
+  return { workspace, projects, now, todayKey, ranked, undated, agenda, freeHoursToday, load, clusters, studyBlocks, brief, milestones };
 }
 
 export type TodayData = Awaited<ReturnType<typeof buildToday>>;

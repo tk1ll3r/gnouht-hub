@@ -70,6 +70,87 @@ export type Database = {
           },
         ]
       }
+      ai_jobs: {
+        Row: {
+          claimed_at: string | null
+          created_at: string
+          device_id: string | null
+          error: string | null
+          expires_at: string
+          finished_at: string | null
+          id: string
+          kind: string
+          max_output_tokens: number
+          messages: Json
+          model: string | null
+          output: string | null
+          question: string | null
+          reserved_tokens: number
+          sources: Json
+          status: string
+          subject_id: string | null
+          used_tokens: number | null
+          user_id: string
+        }
+        Insert: {
+          claimed_at?: string | null
+          created_at?: string
+          device_id?: string | null
+          error?: string | null
+          expires_at: string
+          finished_at?: string | null
+          id?: string
+          kind: string
+          max_output_tokens: number
+          messages: Json
+          model?: string | null
+          output?: string | null
+          question?: string | null
+          reserved_tokens: number
+          sources?: Json
+          status?: string
+          subject_id?: string | null
+          used_tokens?: number | null
+          user_id: string
+        }
+        Update: {
+          claimed_at?: string | null
+          created_at?: string
+          device_id?: string | null
+          error?: string | null
+          expires_at?: string
+          finished_at?: string | null
+          id?: string
+          kind?: string
+          max_output_tokens?: number
+          messages?: Json
+          model?: string | null
+          output?: string | null
+          question?: string | null
+          reserved_tokens?: number
+          sources?: Json
+          status?: string
+          subject_id?: string | null
+          used_tokens?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_jobs_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_jobs_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_log: {
         Row: {
           action: string
@@ -189,6 +270,56 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      checklist_items: {
+        Row: {
+          document_id: string
+          first_seen_at: string
+          id: number
+          indent: number
+          item_key: string
+          line: number
+          ord: number
+          section: string | null
+          status: string
+          status_changed_at: string
+          text: string
+        }
+        Insert: {
+          document_id: string
+          first_seen_at?: string
+          id?: never
+          indent?: number
+          item_key: string
+          line: number
+          ord: number
+          section?: string | null
+          status: string
+          status_changed_at?: string
+          text: string
+        }
+        Update: {
+          document_id?: string
+          first_seen_at?: string
+          id?: never
+          indent?: number
+          item_key?: string
+          line?: number
+          ord?: number
+          section?: string | null
+          status?: string
+          status_changed_at?: string
+          text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checklist_items_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       course_sessions: {
         Row: {
@@ -381,19 +512,28 @@ export type Database = {
         Row: {
           content: string
           document_id: string
+          heading: string | null
           idx: number
+          line: number
+          terms: string | null
           tsv: unknown
         }
         Insert: {
           content: string
           document_id: string
+          heading?: string | null
           idx: number
+          line?: number
+          terms?: string | null
           tsv?: unknown
         }
         Update: {
           content?: string
           document_id?: string
+          heading?: string | null
           idx?: number
+          line?: number
+          terms?: string | null
           tsv?: unknown
         }
         Relationships: [
@@ -410,55 +550,82 @@ export type Database = {
         Row: {
           checklist: Json | null
           device_id: string
+          error: string | null
           excerpt: string | null
           ext: string
           id: string
           indexed_at: string
+          kind: string
+          language: string | null
+          line_count: number
           modified_at: string
+          outline: Json
           owner_id: string
           path: string
           project_id: string | null
+          redactions: number
+          root_key: string
           sha256: string
           size_bytes: number
           storage_path: string | null
           summary: string | null
           title: string
+          todos: Json
+          truncated: boolean
           visibility: string
         }
         Insert: {
           checklist?: Json | null
           device_id: string
+          error?: string | null
           excerpt?: string | null
           ext: string
           id?: string
           indexed_at?: string
+          kind?: string
+          language?: string | null
+          line_count?: number
           modified_at: string
+          outline?: Json
           owner_id: string
           path: string
           project_id?: string | null
+          redactions?: number
+          root_key?: string
           sha256: string
           size_bytes: number
           storage_path?: string | null
           summary?: string | null
           title: string
+          todos?: Json
+          truncated?: boolean
           visibility?: string
         }
         Update: {
           checklist?: Json | null
           device_id?: string
+          error?: string | null
           excerpt?: string | null
           ext?: string
           id?: string
           indexed_at?: string
+          kind?: string
+          language?: string | null
+          line_count?: number
           modified_at?: string
+          outline?: Json
           owner_id?: string
           path?: string
           project_id?: string | null
+          redactions?: number
+          root_key?: string
           sha256?: string
           size_bytes?: number
           storage_path?: string | null
           summary?: string | null
           title?: string
+          todos?: Json
+          truncated?: boolean
           visibility?: string
         }
         Relationships: [
@@ -530,6 +697,118 @@ export type Database = {
             referencedColumns: ["id", "user_id"]
           },
         ]
+      }
+      group_invites: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          created_at: string
+          email: string
+          expires_at: string
+          group_id: string
+          id: string
+          invited_by: string | null
+          revoked_at: string | null
+          token_hash: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email: string
+          expires_at: string
+          group_id: string
+          id?: string
+          invited_by?: string | null
+          revoked_at?: string | null
+          token_hash: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email?: string
+          expires_at?: string
+          group_id?: string
+          id?: string
+          invited_by?: string | null
+          revoked_at?: string | null
+          token_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "group_invites_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      group_members: {
+        Row: {
+          group_id: string
+          joined_at: string
+          role: string
+          share_busy: boolean
+          user_id: string
+        }
+        Insert: {
+          group_id: string
+          joined_at?: string
+          role?: string
+          share_busy?: boolean
+          user_id: string
+        }
+        Update: {
+          group_id?: string
+          joined_at?: string
+          role?: string
+          share_busy?: boolean
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "group_members_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      groups: {
+        Row: {
+          color: string
+          course_code: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          color?: string
+          course_code?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          color?: string
+          course_code?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       integration_secrets: {
         Row: {
@@ -649,6 +928,8 @@ export type Database = {
       profiles: {
         Row: {
           ai_consent_at: string | null
+          ai_daily_tokens: number
+          ai_language: string
           busy_buffer_minutes: number
           created_at: string
           day_end: string
@@ -662,6 +943,8 @@ export type Database = {
         }
         Insert: {
           ai_consent_at?: string | null
+          ai_daily_tokens?: number
+          ai_language?: string
           busy_buffer_minutes?: number
           created_at?: string
           day_end?: string
@@ -675,6 +958,8 @@ export type Database = {
         }
         Update: {
           ai_consent_at?: string | null
+          ai_daily_tokens?: number
+          ai_language?: string
           busy_buffer_minutes?: number
           created_at?: string
           day_end?: string
@@ -688,28 +973,111 @@ export type Database = {
         }
         Relationships: []
       }
+      project_groups: {
+        Row: {
+          created_at: string
+          default_role: string
+          group_id: string
+          linked_by: string | null
+          project_id: string
+        }
+        Insert: {
+          created_at?: string
+          default_role?: string
+          group_id: string
+          linked_by?: string | null
+          project_id: string
+        }
+        Update: {
+          created_at?: string
+          default_role?: string
+          group_id?: string
+          linked_by?: string | null
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_groups_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_groups_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_members: {
         Row: {
           joined_at: string
           project_id: string
           role: string
+          shares_documents: boolean
           user_id: string
+          via_group: string | null
         }
         Insert: {
           joined_at?: string
           project_id: string
           role: string
+          shares_documents?: boolean
           user_id: string
+          via_group?: string | null
         }
         Update: {
           joined_at?: string
           project_id?: string
           role?: string
+          shares_documents?: boolean
           user_id?: string
+          via_group?: string | null
         }
         Relationships: [
           {
             foreignKeyName: "project_members_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_progress_daily: {
+        Row: {
+          attention: number
+          cut: number
+          day: string
+          doing: number
+          done: number
+          project_id: string
+          total: number
+        }
+        Insert: {
+          attention: number
+          cut: number
+          day: string
+          doing: number
+          done: number
+          project_id: string
+          total: number
+        }
+        Update: {
+          attention?: number
+          cut?: number
+          day?: string
+          doing?: number
+          done?: number
+          project_id?: string
+          total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_progress_daily_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -724,8 +1092,16 @@ export type Database = {
           created_at: string
           description: string | null
           due_on: string | null
+          folder_key: string | null
+          folder_label: string | null
           id: string
+          items_attention: number
+          items_cut: number
+          items_doing: number
+          items_done: number
+          items_total: number
           kind: string
+          last_synced_at: string | null
           name: string
           owner_id: string
           slug: string
@@ -738,8 +1114,16 @@ export type Database = {
           created_at?: string
           description?: string | null
           due_on?: string | null
+          folder_key?: string | null
+          folder_label?: string | null
           id?: string
+          items_attention?: number
+          items_cut?: number
+          items_doing?: number
+          items_done?: number
+          items_total?: number
           kind?: string
+          last_synced_at?: string | null
           name: string
           owner_id?: string
           slug: string
@@ -752,8 +1136,16 @@ export type Database = {
           created_at?: string
           description?: string | null
           due_on?: string | null
+          folder_key?: string | null
+          folder_label?: string | null
           id?: string
+          items_attention?: number
+          items_cut?: number
+          items_doing?: number
+          items_done?: number
+          items_total?: number
           kind?: string
+          last_synced_at?: string | null
           name?: string
           owner_id?: string
           slug?: string
@@ -912,6 +1304,7 @@ export type Database = {
           id: string
           kind: string
           notes: string | null
+          permission: string
           progress: number
           project_id: string | null
           source: string
@@ -932,6 +1325,7 @@ export type Database = {
           id?: string
           kind?: string
           notes?: string | null
+          permission?: string
           progress?: number
           project_id?: string | null
           source?: string
@@ -952,6 +1346,7 @@ export type Database = {
           id?: string
           kind?: string
           notes?: string | null
+          permission?: string
           progress?: number
           project_id?: string | null
           source?: string
@@ -1043,11 +1438,131 @@ export type Database = {
       }
     }
     Functions: {
+      accept_group_invite: { Args: { p_invite: string }; Returns: string }
+      add_project_member: {
+        Args: { p_project: string; p_role?: string; p_user: string }
+        Returns: undefined
+      }
+      cancel_ai_job: { Args: { p_job: string }; Returns: boolean }
+      claim_ai_job: {
+        Args: { p_device: string }
+        Returns: {
+          id: string
+          kind: string
+          max_output_tokens: number
+          messages: Json
+          model: string
+        }[]
+      }
+      complete_ai_job: {
+        Args: {
+          p_completion_tokens?: number
+          p_device: string
+          p_error?: string
+          p_job: string
+          p_model?: string
+          p_ok: boolean
+          p_output: string
+          p_prompt_tokens?: number
+        }
+        Returns: undefined
+      }
+      create_group: {
+        Args: {
+          p_color?: string
+          p_course_code?: string
+          p_description?: string
+          p_name: string
+        }
+        Returns: string
+      }
+      create_group_invite: {
+        Args: { p_days?: number; p_email: string; p_group: string }
+        Returns: string
+      }
+      enqueue_ai_job: {
+        Args: {
+          p_kind: string
+          p_max_output: number
+          p_messages: Json
+          p_question?: string
+          p_sources?: Json
+          p_subject?: string
+          p_ttl_seconds: number
+          p_user: string
+        }
+        Returns: string
+      }
+      group_roster: {
+        Args: { p_group: string }
+        Returns: {
+          display_name: string
+          joined_at: string
+          role: string
+          share_busy: boolean
+          user_id: string
+        }[]
+      }
       hit_rate_limit: {
         Args: { p_bucket: string; p_limit: number; p_window_seconds: number }
         Returns: boolean
       }
       hook_before_user_created: { Args: { event: Json }; Returns: Json }
+      ingest_document: {
+        Args: {
+          p_chunks: Json
+          p_device: string
+          p_document: Json
+          p_items: Json
+          p_milestones: Json
+          p_project: string
+          p_root: string
+        }
+        Returns: string
+      }
+      link_group_project: {
+        Args: { p_group: string; p_project: string; p_role?: string }
+        Returns: undefined
+      }
+      mark_mfa_session: {
+        Args: { p_session: string; p_user: string }
+        Returns: boolean
+      }
+      prepare_account_deletion: { Args: { p_user: string }; Returns: undefined }
+      project_roster: {
+        Args: { p_project: string }
+        Returns: {
+          display_name: string
+          joined_at: string
+          role: string
+          shares_documents: boolean
+          user_id: string
+          via_group: string
+        }[]
+      }
+      refresh_project_stats: { Args: { p_project: string }; Returns: undefined }
+      remove_project_member: {
+        Args: { p_project: string; p_user: string }
+        Returns: undefined
+      }
+      search_chunks: {
+        Args: {
+          p_any?: boolean
+          p_kinds?: string[]
+          p_limit?: number
+          p_project?: string
+          p_query: string
+        }
+        Returns: {
+          content: string
+          document_id: string
+          heading: string
+          idx: number
+          line: number
+          project_id: string
+          rank: number
+        }[]
+      }
       search_documents: {
         Args: { p_limit?: number; p_project?: string; q: string }
         Returns: {
@@ -1060,6 +1575,19 @@ export type Database = {
           snippet: string
           title: string
         }[]
+      }
+      session_status: { Args: never; Returns: string }
+      set_document_sharing: {
+        Args: { p_project: string; p_share: boolean }
+        Returns: number
+      }
+      set_project_member_role: {
+        Args: { p_project: string; p_role: string; p_user: string }
+        Returns: undefined
+      }
+      unlink_group_project: {
+        Args: { p_group: string; p_project: string }
+        Returns: undefined
       }
     }
     Enums: {

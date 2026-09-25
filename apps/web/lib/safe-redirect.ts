@@ -17,3 +17,22 @@ export function safeNextPath(next: string | null | undefined, fallback = "/today
   if (url.pathname.startsWith("//") || url.pathname.includes("\\")) return fallback;
   return `${url.pathname}${url.search}${url.hash}`;
 }
+
+/**
+ * Post-login destination for an emailed link. The email template passes Supabase's `redirect_to` (the
+ * `emailRedirectTo` the login form sent: `<APP_URL>/auth/callback?next=…`); its `next` wins over the
+ * template's static `next` only when that URL is on our own origin.
+ */
+export function nextFromEmailLink(params: URLSearchParams, appUrl: string): string {
+  const redirectTo = params.get("redirect_to");
+  if (redirectTo) {
+    try {
+      const url = new URL(redirectTo);
+      const inner = url.searchParams.get("next");
+      if (url.origin === new URL(appUrl).origin && inner) return safeNextPath(inner);
+    } catch {
+      // Not a URL: ignore it and use the plain `next`.
+    }
+  }
+  return safeNextPath(params.get("next"));
+}

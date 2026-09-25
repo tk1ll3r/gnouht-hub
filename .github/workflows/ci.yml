@@ -33,6 +33,60 @@ jobs:
       - run: supabase test db
       - run: supabase db lint --level warning
 
+  # Production build against a local Supabase: HTTP smoke test (sign-in, RLS, MFA, cron auth, exports),
+  # the agent protocol end to end, then a ZAP baseline scan of the running app.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [checks, database]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: npm ci
+      - run: supabase start -x logflare,vector,studio,imgproxy,edge-runtime
+      - run: node scripts/dev-env.mjs
+      - run: npm run build
+      - name: Start the web app
+        run: |
+          nohup npm run start -w @hub/web > next.log 2>&1 &
+          for i in $(seq 60); do curl -sf -o /dev/null http://localhost:3000/login && exit 0; sleep 1; done
+          exit 1
+      - run: node apps/web/test/smoke.mjs
+      - name: Agent end to end
+        # A fresh session keyring for the agent's OS credential store (keyutils on Linux).
+        run: |
+          sudo apt-get install -y keyutils
+          keyctl session - node apps/agent/test/e2e.mjs
+      - name: ZAP baseline
+        run: |
+          mkdir -p zap && cp .zap/rules.tsv zap/ && chmod -R a+rwx zap
+          # Any FAIL or WARN alert fails the step; accepted findings are triaged in .zap/rules.tsv.
+          docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" zaproxy/zap-stable \
+            zap-baseline.py -t http://localhost:3000/login -m 2 -c rules.tsv -J zap.json
+      - if: failure()
+        run: tail -n 200 next.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: zap/zap.json
+          if-no-files-found: ignore
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm audit --omit=dev --audit-level=high
+
   secrets:
     runs-on: ubuntu-latest
     permissions:

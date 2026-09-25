@@ -45,7 +45,7 @@ export function buildHeuristicBrief<T extends UrgencyTask>(input: BriefInput<T>)
   if (counts.urgent) parts.push(`${counts.urgent} urgent`);
   if (counts.soon) parts.push(`${counts.soon} coming up`);
   const load = parts.length ? parts.join(", ") : "nothing pressing";
-  const headline = `${formatZoned(now, "EEEE d MMM", tz)} — ${load}. ${formatHours(input.freeHoursToday)} free today.`;
+  const headline = `${formatZoned(now, "EEEE d MMM", tz)}: ${load}. ${formatHours(input.freeHoursToday)} free today.`;
 
   const lines: string[] = [`**${headline}**`, ""];
 
@@ -54,7 +54,7 @@ export function buildHeuristicBrief<T extends UrgencyTask>(input: BriefInput<T>)
     lines.push("### Do first");
     focus.forEach((item, index) => {
       const label = input.labelOf?.(item.task);
-      lines.push(`${index + 1}. **${label ? `${label} · ` : ""}${item.task.title}** — ${item.reason}`);
+      lines.push(`${index + 1}. **${label ? `${label} ` : ""}${item.task.title}.** ${item.reason}`);
     });
     lines.push("");
   }
@@ -65,7 +65,7 @@ export function buildHeuristicBrief<T extends UrgencyTask>(input: BriefInput<T>)
       const when = item.allDay
         ? "All day"
         : `${formatZoned(item.start, "HH:mm", tz)}–${formatZoned(item.end, "HH:mm", tz)}`;
-      lines.push(`- ${when} · ${item.title}${item.detail ? ` (${item.detail})` : ""}`);
+      lines.push(`- **${when}** ${item.title}${item.detail ? ` (${item.detail})` : ""}`);
     }
     lines.push("");
   }
@@ -73,11 +73,11 @@ export function buildHeuristicBrief<T extends UrgencyTask>(input: BriefInput<T>)
   const warnings: string[] = [];
   for (const cluster of input.clusters.slice(0, 2)) {
     warnings.push(
-      `${cluster.ids.length} deadlines between ${formatZoned(cluster.start, "EEE d MMM", tz)} and ${formatZoned(cluster.end, "EEE d MMM", tz)} — start early.`,
+      `${cluster.ids.length} deadlines between ${formatZoned(cluster.start, "EEE d MMM", tz)} and ${formatZoned(cluster.end, "EEE d MMM", tz)}. Start early.`,
     );
   }
   const overdue = input.ranked.filter((r) => r.overdue).length;
-  if (overdue) warnings.push(`${overdue} overdue item${overdue > 1 ? "s" : ""} — finish or re-plan ${overdue > 1 ? "them" : "it"}.`);
+  if (overdue) warnings.push(`${overdue} overdue item${overdue > 1 ? "s" : ""}: finish or re-plan ${overdue > 1 ? "them" : "it"}.`);
   if (counts.undated) warnings.push(`${counts.undated} open task${counts.undated > 1 ? "s have" : " has"} no deadline.`);
   if (warnings.length) {
     lines.push("### Heads-up", ...warnings.map((w) => `- ${w}`), "");

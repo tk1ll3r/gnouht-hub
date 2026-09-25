@@ -1,0 +1,11 @@
+# ZAP baseline rules for gnouht hub (id<TAB>action<TAB>reason). Unlisted rules warn.
+10038	FAIL	(Content Security Policy header not set)
+10020	FAIL	(Anti-clickjacking header missing)
+10021	FAIL	(X-Content-Type-Options missing)
+10098	FAIL	(Cross-domain misconfiguration)
+10036	FAIL	(Server leaks version information)
+90022	FAIL	(Application error disclosure)
+10202	IGNORE	(Anti-CSRF tokens: Server Actions are rejected unless Origin matches the host, and session cookies are SameSite=Lax; verified in docs/pentest.md)
+10031	IGNORE	(User controllable attribute: ?next= is normalised by safeNextPath and escaped by React)
+10109	IGNORE	(Modern web application: informational)
+10019	IGNORE	(Content-Type missing on bodiless 307 redirects to /login)

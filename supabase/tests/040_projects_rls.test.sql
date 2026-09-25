@@ -49,8 +49,9 @@ select is((select count(*)::int from public.documents), 1, 'editor sees only pro
 -- ── viewer ───────────────────────────────────────────────────────────────
 select tests.authenticate_as('90000000-0000-0000-0000-000000000009');
 select is((select count(*)::int from public.tasks where project_id is not null), 1, 'viewer reads project tasks');
-select results_eq($$with u as (update public.tasks set status = 'done' where title = 'Chọn đề tài' returning 1) select count(*)::int from u$$, $$values (0)$$,
-  'viewer cannot change tasks');
+-- Gina is the task's assignee: she may move her own task (see 045), but not rename it.
+select throws_ok($$update public.tasks set title = 'renamed' where title = 'Chọn đề tài'$$, '42501', null,
+  'viewer cannot change tasks beyond the progress of their own');
 select throws_ok($$insert into public.tasks (title, project_id) values ('sneaky', 'e1000000-0000-0000-0000-000000000001')$$, '42501', null, 'viewer cannot add tasks');
 select results_eq($$with u as (update public.milestones set done = true returning 1) select count(*)::int from u$$, $$values (0)$$, 'viewer cannot edit milestones');
 select is((select count(*)::int from public.search_documents('bao cao')), 1, 'accent-insensitive search finds the shared report only');

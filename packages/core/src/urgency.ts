@@ -120,7 +120,7 @@ export function rankTasks<T extends UrgencyTask>(tasks: readonly T[], options: U
     } else if (cumulativeSlack < 0) {
       reason = `With earlier deadlines you need ~${formatHours(cumulative)}, but only ${formatHours(freeHours)} free before ${dueLabel}`;
     } else if (hoursLeft < URGENT_HOURS) {
-      reason = `Due in ${formatDuration(due.getTime() - now.getTime())} · ~${formatHours(remaining)} of work left`;
+      reason = `Due in ${formatDuration(due.getTime() - now.getTime())}, ~${formatHours(remaining)} of work left`;
     } else {
       reason = `~${formatHours(remaining)} of work, ${formatHours(freeHours)} free before ${dueLabel}`;
     }

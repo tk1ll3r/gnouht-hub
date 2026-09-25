@@ -14,8 +14,9 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Badge, ButtonLink, Card, PageHeader } from "@/components/ui";
+import { WeekGrid, type GridDay } from "@/components/week-grid";
 import { requireUser } from "@/lib/auth";
-import { busyIntervals, classesBetween, loadEvents, loadTasks, loadWorkspace } from "@/lib/data";
+import { busyIntervals, classesBetween, loadEvents, loadTasks, loadWorkspace, periodsOf } from "@/lib/data";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Calendar" };
@@ -74,8 +75,8 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
       const course = courseById.get(c.courseId);
       return {
         id: `class:${c.sessionId}:${c.date}`,
-        title: course ? `${course.code} · ${course.name}` : "Class",
-        detail: [c.kind !== "lecture" ? c.kind : null, c.room].filter(Boolean).join(" · ") || null,
+        title: course?.name ?? "Class",
+        detail: [course?.code, c.kind !== "lecture" ? c.kind : null, c.room].filter(Boolean).join(", ") || null,
         start: c.start,
         end: c.end,
         allDay: false,
@@ -109,8 +110,25 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
       .sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start.getTime() - b.start.getTime());
     const free = freeHoursUntil(freeIntervals(start, end, busy, ws.options), start, end);
     const due = tasks.filter((t) => t.due_at && zonedDateKey(new Date(t.due_at), tz) === key);
-    return { key, dayItems, free, due };
+    return { key, start, dayItems, free, due };
   });
+
+  // The grid shows the productive day, stretched to include anything scheduled outside it.
+  const minutesIn = (date: Date, dayStart: Date) => (date.getTime() - dayStart.getTime()) / 60_000;
+  const timed = days.flatMap((d) => d.dayItems.filter((i) => !i.allDay).map((i) => [minutesIn(i.start, d.start), minutesIn(i.end, d.start)] as const));
+  const fromMin = Math.max(0, Math.floor(Math.min(dayStartMin, ...timed.map(([a]) => a)) / 60) * 60);
+  const toMin = Math.min(24 * 60, Math.ceil(Math.max(dayEndMin, ...timed.map(([, b]) => b)) / 60) * 60);
+  const gridDays: GridDay[] = days.map((day) => ({
+    key: day.key,
+    label: formatZoned(zonedInstant(day.key, 12 * 60, tz), "EEE d", tz),
+    isToday: day.key === todayKey,
+    free: day.free,
+    items: day.dayItems
+      .filter((i) => !i.allDay)
+      .map((i) => ({ id: i.id, title: i.title, detail: i.detail, start: i.start, end: i.end, color: i.color, busy: i.busy, conflict: conflicts.has(i.id), href: i.href })),
+    allDay: day.dayItems.filter((i) => i.allDay).map((i) => ({ id: i.id, title: i.title })),
+    due: day.due.map((t) => ({ id: t.id, title: t.title, at: new Date(t.due_at!), done: t.status === "done" })),
+  }));
 
   return (
     <>
@@ -132,9 +150,17 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
         }
       />
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <Card className="hidden overflow-hidden px-2 pt-3 pb-1 md:block">
+        <WeekGrid days={gridDays} fromMin={fromMin} toMin={toMin} tz={tz} now={now} periods={periodsOf(ws.profile)} />
+      </Card>
+      <p className="mt-3 hidden text-[12.5px] text-muted md:block">
+        Dashed red outlines mark overlapping commitments; the ticks labelled t1–t10 are class periods (tiết).
+      </p>
+
+      {/* Phones: one list per day. */}
+      <div className="grid gap-3 md:hidden">
         {days.map((day) => (
-          <Card key={day.key} className={cn(day.key === todayKey && "border-accent")}>
+          <Card key={day.key} className={cn(day.key === todayKey && "border-accent/60")}>
             <div className="flex items-baseline justify-between gap-2 border-b border-border px-3 py-2">
               <span className="text-sm font-semibold">
                 {formatZoned(zonedInstant(day.key, 12 * 60, tz), "EEE d MMM", tz)}
@@ -155,7 +181,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
               {day.dayItems.map((item) => {
                 const row = (
                   <div className="flex gap-2 text-[13px]">
-                    <span className="w-11 shrink-0 font-mono text-[12px] text-muted">{item.allDay ? "all day" : formatZoned(item.start, "HH:mm", tz)}</span>
+                    <span className="w-11 shrink-0 text-[12px] text-muted tabular-nums">{item.allDay ? "all day" : formatZoned(item.start, "HH:mm", tz)}</span>
                     <svg width="3" height="18" viewBox="0 0 3 18" className="mt-0.5 shrink-0" aria-hidden>
                       <rect width="3" height="18" rx="1.5" fill={item.color} />
                     </svg>

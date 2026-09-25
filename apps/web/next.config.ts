@@ -23,6 +23,11 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },
+      // Files served without the proxy (which sets the per-request CSP) get a strict static policy.
+      {
+        source: "/:file(robots\\.txt|icon\\.svg|favicon\\.ico|manifest\\.webmanifest)",
+        headers: [{ key: "Content-Security-Policy", value: "default-src 'none'; frame-ancestors 'none'" }],
+      },
       // Authenticated pages and API responses must never be cached by a shared cache.
       { source: "/api/:path*", headers: [{ key: "Cache-Control", value: "private, no-store" }] },
     ];

@@ -10,11 +10,12 @@ type Size = "sm" | "md";
 
 const buttonBase =
   "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 whitespace-nowrap";
+// Purple ink for the one action that moves things forward; red pen only for destructive ones.
 const buttonVariants: Record<Variant, string> = {
-  primary: "bg-accent text-accent-fg hover:opacity-90",
-  secondary: "border border-border bg-surface text-text hover:bg-surface-2",
+  primary: "bg-accent text-accent-fg hover:bg-accent/90",
+  secondary: "border border-border bg-surface text-text hover:border-accent/40 hover:text-accent",
   ghost: "text-muted hover:bg-surface-2 hover:text-text",
-  danger: "border border-border bg-surface text-danger hover:bg-danger-soft",
+  danger: "border border-danger/30 bg-surface text-danger hover:bg-danger-soft",
 };
 const buttonSizes: Record<Size, string> = { sm: "h-8 px-2.5 text-[13px]", md: "h-9 px-3.5 text-sm" };
 
@@ -40,8 +41,9 @@ export function ButtonLink({
   return <Link className={buttonClass(variant, size, className)} {...props} />;
 }
 
+/** A sheet laid on the notebook: sections that hold a list or a form. */
 export function Card({ className, ...props }: ComponentProps<"section">) {
-  return <section className={cn("rounded-xl border border-border bg-surface", className)} {...props} />;
+  return <section className={cn("rounded-2xl border border-border bg-surface", className)} {...props} />;
 }
 
 export function CardHeader({
@@ -56,10 +58,10 @@ export function CardHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-start justify-between gap-3 border-b border-border px-4 py-3", className)}>
-      <div className="min-w-0">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {description ? <p className="mt-0.5 text-[13px] text-muted">{description}</p> : null}
+    <div className={cn("flex flex-wrap items-start justify-between gap-3 border-b border-border/70 px-4 pt-3.5 pb-3", className)}>
+      <div className="min-w-0 flex-1 basis-56">
+        <h2 className="text-[15px] font-semibold tracking-tight">{title}</h2>
+        {description ? <p className="mt-0.5 max-w-prose text-[13px] text-muted">{description}</p> : null}
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>
@@ -82,18 +84,31 @@ const tones: Record<Tone, string> = {
 export function Badge({ tone = "neutral", className, ...props }: ComponentProps<"span"> & { tone?: Tone }) {
   return (
     <span
-      className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium whitespace-nowrap", tones[tone], className)}
+      className={cn("inline-flex items-center gap-1 rounded-[5px] px-1.5 py-px text-[12px] leading-5 font-medium whitespace-nowrap", tones[tone], className)}
       {...props}
     />
   );
 }
 
+/** Secondary facts about an item, spaced apart instead of chained with separators. */
+export function Meta({ items, className }: { items: ReactNode[]; className?: string }) {
+  const shown = items.filter((item) => item !== null && item !== undefined && item !== false && item !== "");
+  if (!shown.length) return null;
+  return (
+    <span className={cn("inline-flex flex-wrap items-baseline gap-x-3 gap-y-0.5", className)}>
+      {shown.map((item, index) => (
+        <span key={index}>{item}</span>
+      ))}
+    </span>
+  );
+}
+
 export function PageHeader({ title, description, actions }: { title: ReactNode; description?: ReactNode; actions?: ReactNode }) {
   return (
-    <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-        {description ? <p className="mt-1 text-sm text-muted">{description}</p> : null}
+        <h1 className="text-[26px] leading-tight font-semibold tracking-tight">{title}</h1>
+        {description ? <p className="mt-1.5 max-w-2xl text-[14px] text-muted">{description}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </header>
@@ -102,8 +117,8 @@ export function PageHeader({ title, description, actions }: { title: ReactNode; 
 
 export function EmptyState({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 px-6 py-10 text-center">
-      <p className="text-sm font-medium">{title}</p>
+    <div className="flex flex-col items-center justify-center gap-1.5 px-6 py-9 text-center">
+      <p className="text-[15px] font-medium">{title}</p>
       {children ? <div className="max-w-sm text-[13px] text-muted">{children}</div> : null}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>
@@ -111,7 +126,7 @@ export function EmptyState({ title, children, action }: { title: string; childre
 }
 
 const fieldClass =
-  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted/70 focus:border-accent focus:outline-none";
+  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/15 focus:outline-none";
 
 export function Input({ className, ...props }: ComponentProps<"input">) {
   return <input className={cn(fieldClass, "h-9 py-0", className)} {...props} />;

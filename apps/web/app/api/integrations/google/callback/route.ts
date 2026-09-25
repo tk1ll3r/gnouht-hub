@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
-import { getSessionUser } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 import { decryptSecret, encryptSecret, safeEqual } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import {
@@ -30,7 +30,8 @@ export async function GET(request: NextRequest) {
   if (params.get("error")) return done("error=denied");
 
   // CSRF / mix-up protection: the state must match the encrypted cookie set by /start for this same user.
-  const user = await getSessionUser();
+  const session = await getSession();
+  const user = session?.state === "ok" ? session.user : null;
   const raw = request.cookies.get(OAUTH_COOKIE)?.value;
   let saved: z.infer<typeof cookieSchema>;
   try {

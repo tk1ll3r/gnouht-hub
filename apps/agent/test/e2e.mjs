@@ -3,14 +3,23 @@
 // 9router, replay/tamper rejection, revocation. Uses a temp config dir and cleans up the Credential
 // Manager entries it creates. Usage: node apps/agent/test/e2e.mjs (after `npm run build -w @hub/agent`)
 import { spawn, spawnSync } from "node:child_process";
-import { createHash, randomInt } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash, createHmac, randomBytes, randomInt } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { signedHeaders } from "../../../packages/core/src/protocol.ts";
+
+// Independent implementation of the signing scheme in packages/core/src/protocol.ts (so this test also
+// checks the documented canonical form): METHOD\npath\ntimestamp\nnonce\nsha256(body), HMAC-SHA256.
+function signedHeaders(deviceId, secret, method, path, body) {
+  const timestamp = String(Date.now());
+  const nonce = randomBytes(16).toString("base64url");
+  const canonical = [method, path, timestamp, nonce, createHash("sha256").update(body).digest("hex")].join("\n");
+  const signature = createHmac("sha256", Buffer.from(secret, "base64url")).update(canonical).digest("hex");
+  return { "x-hub-device": deviceId, "x-hub-timestamp": timestamp, "x-hub-nonce": nonce, "x-hub-signature": signature };
+}
 
 const here = dirname(fileURLToPath(import.meta.url));
 const env = Object.fromEntries(
@@ -40,13 +49,23 @@ const run = (...args) =>
     child.on("close", (status) => resolveRun({ status, stdout, stderr }));
   });
 
-// Fake 9router with one Claude account.
-const fake = createServer((req, res) => {
+// Fake 9router with one Claude account and an OpenAI-compatible chat endpoint.
+const chatRequests = [];
+const fake = createServer(async (req, res) => {
   const json = (status, body, headers = {}) => {
     res.writeHead(status, { "content-type": "application/json", ...headers });
     res.end(JSON.stringify(body));
   };
   if (req.url === "/api/health") return json(200, { ok: true });
+  if (req.url?.startsWith("/v1/")) {
+    if (req.headers.authorization !== "Bearer fake-api-key") return json(401, { error: { message: "invalid api key" } });
+    if (req.url === "/v1/models") return json(200, { data: [{ id: "cc/fake-model" }] });
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const body = JSON.parse(raw);
+    chatRequests.push(body);
+    return json(200, { model: body.model, choices: [{ message: { content: "Hạn nộp abstract là 02/10 [1]." } }], usage: { prompt_tokens: 321, completion_tokens: 12 } });
+  }
   if (req.url === "/api/auth/login") return json(200, {}, { "set-cookie": "auth_token=fake; Path=/; HttpOnly" });
   if (req.headers.cookie !== "auth_token=fake") return json(401, {});
   if (req.url === "/api/providers") return json(200, { connections: [{ id: "conn-claude", provider: "claude", email: "tester@gmail.com", isActive: true }] });
@@ -110,6 +129,135 @@ try {
     body: '{"windows":"nope"}',
   });
   check(bad.status === 400, "schema-invalid payloads are rejected", String(bad.status));
+
+  // Documents: watch a folder, sync, and check what the hub derived from it.
+  const docsDir = mkdtempSync(join(tmpdir(), "hub-agent-docs-"));
+  const progress = (item) =>
+    [
+      "# Tiến độ đồ án E2E",
+      "",
+      "- **Ngày cập nhật:** 20/09/2026",
+      "",
+      "| Mốc | Hạn |",
+      "|---|---|",
+      "| **Nộp đề cương** | 30/09 |",
+      "",
+      "## Việc",
+      "- [x] Chọn đề tài",
+      `- ${item} Viết đề cương 📅 2026-09-28`,
+      "- [!] Hỏi thầy về dữ liệu",
+      "",
+      `Token cũ: ghp_${"a".repeat(36)}`,
+    ].join("\n");
+  writeFileSync(join(docsDir, "tien-do.md"), progress("[ ]"));
+  writeFileSync(join(docsDir, ".env"), "SECRET=never-uploaded");
+  writeFileSync(join(docsDir, "db-password.md"), "never uploaded");
+  const add = await run("project", "add", docsDir, "--name", "E2E project");
+  check(add.status === 0 && /1 file\(s\) to index/.test(add.stdout), "project add previews the files it will index", add.stdout.trim() || add.stderr.trim());
+  const sync1 = await run("sync-docs");
+  check(sync1.status === 0 && /1 files, 1 uploaded/.test(sync1.stdout), "first sync uploads the checklist", sync1.stdout.trim() || sync1.stderr.trim());
+  const { data: project } = await admin.from("projects").select("*").eq("user_id", ownerId).eq("name", "E2E project").single();
+  check(project?.items_total === 3 && project.items_done === 1 && project.items_attention === 1, "hub computes checklist totals", JSON.stringify(project && [project.items_total, project.items_done]));
+  const { data: doc } = await admin.from("project_documents").select("content, redactions").eq("project_id", project.id).single();
+  check(doc && !doc.content.includes("ghp_") && doc.redactions === 1, "a token in the file is redacted before upload");
+  const { data: stored } = await admin.from("project_documents").select("path").eq("project_id", project.id);
+  check(stored?.length === 1, "dot files and secret-looking names are never uploaded", JSON.stringify(stored));
+  let { data: deadlines } = await admin.from("tasks").select("title, kind, status").eq("project_id", project.id).order("due_at");
+  check(
+    JSON.stringify(deadlines?.map((t) => [t.title, t.status])) === JSON.stringify([["Viết đề cương", "todo"], ["Nộp đề cương", "todo"]]),
+    "milestone table rows and dated items become tasks",
+    JSON.stringify(deadlines),
+  );
+  const sync2 = await run("sync-docs");
+  check(/1 files, 0 uploaded/.test(sync2.stdout), "an unchanged folder uploads nothing", sync2.stdout.trim());
+  writeFileSync(join(docsDir, "tien-do.md"), progress("[x]"));
+  const sync3 = await run("sync-docs");
+  ({ data: deadlines } = await admin.from("tasks").select("title, status").eq("project_id", project.id).eq("title", "Viết đề cương"));
+  check(/1 uploaded/.test(sync3.stdout) && deadlines?.[0]?.status === "done", "ticking an item in the file completes its task", sync3.stdout.trim());
+  const { data: hits } = await admin.rpc("search_documents", { p_query: "hoi thay du lieu", p_project: project.id });
+  check(hits?.length >= 1, "indexed text is searchable without accents");
+  await admin.from("projects").update({ status: "archived" }).eq("id", project.id);
+  const sync4 = await run("sync-docs");
+  check(/archived in the hub, skipped/.test(sync4.stdout), "archived projects are not synced", sync4.stdout.trim());
+  rmSync(join(docsDir, "tien-do.md"));
+  await admin.from("projects").update({ status: "active" }).eq("id", project.id);
+  await run("sync-docs");
+  const { count: remaining } = await admin.from("project_documents").select("id", { count: "exact", head: true }).eq("project_id", project.id);
+  const { count: orphanTasks } = await admin.from("tasks").select("id", { count: "exact", head: true }).eq("project_id", project.id);
+  check(remaining === 0 && orphanTasks === 0, "deleting the file removes its document and tasks");
+  const remove = await run("project", "remove", "1");
+  check(remove.status === 0, "project remove stops watching");
+  await admin.from("projects").delete().eq("id", project.id);
+  rmSync(docsDir, { recursive: true, force: true });
+
+  // Source code: opt-in with --code; build output and lock files stay out; the hub stores language,
+  // outline and TODOs, and identifiers are searchable by their parts.
+  const codeDir = mkdtempSync(join(tmpdir(), "hub-agent-code-"));
+  const put = (rel, content) => {
+    mkdirSync(join(codeDir, rel, ".."), { recursive: true });
+    writeFileSync(join(codeDir, rel), content);
+  };
+  put("README.md", "# Lab 3\nAES modes.\n");
+  put("src/cipher.ts", ["export class BlockCipher {", "  encryptBlock(input: Uint8Array): Uint8Array {", "    // FIXME: constant-time compare", "    return input;", "  }", "}", "", "export function parseChecklist(text: string) {", "  // TODO: nested lists", '  const apiKey = "sk-proj-abcdefghijklmnopqrstuvwxyz0123";', "  return text;", "}"].join("\n"));
+  put("scripts/run.py", "def main():\n    pass\n");
+  put("dist/bundle.js", "function a(){}");
+  put("node_modules/x/index.js", "module.exports = 1;");
+  put("package-lock.json", "{}");
+  const addCode = await run("project", "add", codeDir, "--name", "E2E code", "--code");
+  check(addCode.status === 0 && /3 file\(s\) to index/.test(addCode.stdout), "project add --code lists sources and notes, not build output or lock files", addCode.stdout.trim() || addCode.stderr.trim());
+  const syncCode = await run("sync-docs");
+  check(syncCode.status === 0 && /3 files, 3 uploaded/.test(syncCode.stdout), "source files sync", syncCode.stdout.trim() || syncCode.stderr.trim());
+  const { data: codeProject } = await admin.from("projects").select("id").eq("user_id", ownerId).eq("name", "E2E code").single();
+  const { data: cipher } = await admin.from("project_documents").select("kind, language, line_count, outline, todos, content, redactions").eq("project_id", codeProject.id).eq("path", "src/cipher.ts").single();
+  check(
+    cipher?.kind === "code" && cipher.language === "typescript" && cipher.line_count === 12 && !cipher.content.includes("sk-proj") && cipher.redactions >= 1,
+    "a source file is stored as TypeScript with its secret redacted",
+    JSON.stringify(cipher && [cipher.kind, cipher.language, cipher.line_count, cipher.redactions]),
+  );
+  check(
+    JSON.stringify(cipher?.outline?.map((s) => `${s.kind}:${s.name}`)) === JSON.stringify(["class:BlockCipher", "method:encryptBlock", "function:parseChecklist"]) &&
+      JSON.stringify(cipher?.todos?.map((t) => `${t.tag}@${t.line}`)) === JSON.stringify(["FIXME@3", "TODO@9"]),
+    "the hub extracts the outline and TODO comments",
+    JSON.stringify([cipher?.outline, cipher?.todos]),
+  );
+  const { data: codeHits } = await admin.rpc("search_documents", { p_query: "checklist", p_project: codeProject.id, p_kinds: ["code"] });
+  check(codeHits?.length === 1, "a word inside an identifier finds the source file");
+  const codeOff = await run("project", "code", "1", "off");
+  check(codeOff.status === 0 && /0 source file/.test(codeOff.stdout), "project code off stops indexing sources", codeOff.stdout.trim() || codeOff.stderr.trim());
+  await run("project", "remove", "1");
+  await admin.from("projects").delete().eq("id", codeProject.id);
+  rmSync(codeDir, { recursive: true, force: true });
+
+  // AI jobs: the hub queues a job, the agent relays it to 9router and returns the answer.
+  writeFileSync(join(home, "config.json"), JSON.stringify({ ...JSON.parse(readFileSync(join(home, "config.json"), "utf8")), aiModel: "cc/fake-model" }));
+  new Entry("gnouht-hub-agent", "9router-api-key").setPassword("fake-api-key");
+  await admin.from("profiles").update({ ai_consent_at: new Date().toISOString(), ai_daily_tokens: 100000 }).eq("id", ownerId);
+  // Start from an empty queue (the daily-brief cron in the smoke test may have queued a morning note).
+  await admin.from("ai_jobs").delete().eq("user_id", ownerId);
+  const messages = [
+    { role: "system", content: "rules for the model" },
+    { role: "user", content: '<data n=1 id="x">Hạn nộp abstract: 02/10</data id="x">\n\nQuestion: khi nào nộp abstract?' },
+  ];
+  const { data: jobId, error: queueError } = await admin.rpc("enqueue_ai_job", { p_user: ownerId, p_kind: "ask_docs", p_messages: messages, p_max_output: 800, p_ttl_seconds: 600, p_question: "khi nào nộp abstract?" });
+  check(!queueError && Boolean(jobId), "the hub queues an AI job for a consenting user", queueError?.message);
+  const aiStatus = await run("status");
+  check(/ai: ready \(cc\/fake-model\)/.test(aiStatus.stdout), "status reports the AI setup");
+  const jobs = await run("run-jobs");
+  check(jobs.status === 0 && /1 answered/.test(jobs.stdout), "run-jobs claims and answers the job", jobs.stdout.trim() || jobs.stderr.trim());
+  check(chatRequests.length === 1 && JSON.stringify(chatRequests[0].messages) === JSON.stringify(messages) && chatRequests[0].model === "cc/fake-model",
+    "the agent relays the hub's messages to 9router unchanged");
+  const { data: finished } = await admin.from("ai_jobs").select("status, output, used_tokens, messages, device_id").eq("id", jobId).single();
+  check(finished?.status === "done" && finished.output === "Hạn nộp abstract là 02/10 [1]." && finished.used_tokens === 333 && JSON.stringify(finished.messages) === "[]" && finished.device_id === config.deviceId,
+    "the answer and real token usage are stored and the prompt is wiped", JSON.stringify(finished));
+  const idle = await run("run-jobs");
+  check(/0 answered/.test(idle.stdout), "with nothing queued the agent does nothing");
+  const replayComplete = await fetch(`${APP}/api/agent/jobs/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...signedHeaders(config.deviceId, secret, "POST", "/api/agent/jobs/complete", JSON.stringify({ jobId, ok: true, output: "overwritten", usage: null, model: null, error: null })) },
+    body: JSON.stringify({ jobId, ok: true, output: "overwritten", usage: null, model: null, error: null }),
+  });
+  check(replayComplete.status === 409, "a finished job cannot be overwritten", String(replayComplete.status));
+  new Entry("gnouht-hub-agent", "9router-api-key").deletePassword();
 
   // Revocation stops the agent.
   await admin.from("devices").delete().eq("id", config.deviceId);

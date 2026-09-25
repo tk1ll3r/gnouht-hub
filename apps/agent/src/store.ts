@@ -3,6 +3,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { projectSlug } from "@hub/core";
+import { PROJECT_SLUG } from "@hub/core/protocol";
+import { DEFAULT_INCLUDE } from "./documents";
 
 export const SERVICE = "gnouht-hub-agent";
 
@@ -13,7 +16,7 @@ export interface SecretStore {
   delete(name: SecretName): void;
 }
 
-export type SecretName = "device-secret" | "9router-password" | "moodle-token";
+export type SecretName = "device-secret" | "9router-password" | "9router-api-key" | "moodle-token";
 
 export const keyringStore: SecretStore = {
   get: (name) => new Entry(SERVICE, name).getPassword() ?? null,
@@ -36,6 +39,27 @@ export const configSchema = z.object({
   ninerouterUrl: z.url().default("http://127.0.0.1:20128"),
   moodleUrl: z.url().default("https://courses.uit.edu.vn"),
   moodleUsername: z.string().nullable().default(null),
+  /** 9router model (or combo) used for AI jobs, e.g. "cc/claude-sonnet-4-5". */
+  aiModel: z.string().max(120).nullable().default(null),
+  /** Watched project folders (`hub-agent project add`). */
+  projects: z
+    .array(
+      z
+        .object({
+          root: z.string().min(1),
+          name: z.string().trim().min(1).max(100),
+          /** The hub project this folder syncs into, by slug (created on first sync if the owner has none). */
+          slug: z.string().regex(PROJECT_SLUG).optional(),
+          /** Or an explicit team project the device owner can edit (`project add --project <id>`). */
+          projectId: z.uuid().nullable().default(null),
+          include: z.array(z.string().min(1).max(1000)).max(20).default(DEFAULT_INCLUDE),
+          exclude: z.array(z.string().min(1).max(1000)).max(50).default([]),
+        })
+        // Folders saved before slugs existed get one from their name.
+        .transform((folder) => ({ ...folder, slug: folder.slug ?? projectSlug(folder.name) })),
+    )
+    .max(30)
+    .default([]),
 });
 export type AgentConfig = z.infer<typeof configSchema>;
 
@@ -44,12 +68,32 @@ export function configDir(): string {
   return process.env.HUB_AGENT_HOME ? base : join(base, "gnouht-hub-agent");
 }
 
+/**
+ * The saved configuration, or defaults when there is none yet. A file that exists but cannot be read or
+ * validated is an error: falling back to defaults would silently forget the pairing and watched folders,
+ * and the next save would overwrite them.
+ */
 export function loadConfig(): AgentConfig {
+  const path = join(configDir(), "config.json");
+  let raw: string;
   try {
-    return configSchema.parse(JSON.parse(readFileSync(join(configDir(), "config.json"), "utf8")));
-  } catch {
-    return configSchema.parse({});
+    raw = readFileSync(path, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return configSchema.parse({});
+    throw new Error(`Cannot read ${path}: ${(err as Error).message}`);
   }
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new Error(`${path} is not valid JSON. Fix it, or delete it and pair again.`);
+  }
+  const parsed = configSchema.safeParse(json);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new Error(`${path} is not a valid configuration (${issue?.path.join(".") || "root"}: ${issue?.message}). Fix it, or delete it and pair again.`);
+  }
+  return parsed.data;
 }
 
 export function saveConfig(config: AgentConfig): void {

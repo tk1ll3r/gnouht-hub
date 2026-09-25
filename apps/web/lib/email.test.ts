@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { briefToHtml } from "./email";
+import { briefToHtml, inviteEmail } from "./email";
 
 describe("briefToHtml", () => {
   it("renders headings, lists and bold text", () => {
@@ -16,5 +16,16 @@ describe("briefToHtml", () => {
     expect(html).not.toContain("<img");
     expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
     expect(html).toContain("&quot;quoted&quot;");
+  });
+});
+
+describe("inviteEmail", () => {
+  it("escapes user-chosen names and links", () => {
+    const mail = inviteEmail({ groupName: '<script>x</script> "NT219"', inviterName: "Gi<b>na", link: "https://hub.gnouht.space/invite/abc?x=1&y=2", expiresOn: "2026-10-01" });
+    expect(mail.html).not.toContain("<script>");
+    expect(mail.html).not.toContain("<b>na");
+    expect(mail.html).toContain("&lt;script&gt;x&lt;/script&gt; &quot;NT219&quot;");
+    expect(mail.html).toContain('href="https://hub.gnouht.space/invite/abc?x=1&amp;y=2"');
+    expect(mail.text).toContain("https://hub.gnouht.space/invite/abc?x=1&y=2");
   });
 });

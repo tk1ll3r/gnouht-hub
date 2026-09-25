@@ -1,12 +1,14 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Be_Vietnam_Pro, Playwrite_VN } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin", "latin-ext", "vietnamese"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin", "vietnamese"] });
+// Be Vietnam Pro was drawn for Vietnamese diacritics; it carries the whole interface.
+const sans = Be_Vietnam_Pro({ variable: "--font-sans-ui", subsets: ["latin", "latin-ext", "vietnamese"], weight: ["400", "500", "600", "700"] });
+// TypeTogether's model of Vietnamese school handwriting — used only for the date line and the wordmark.
+const hand = Playwrite_VN({ variable: "--font-hand-face", weight: ["300"], fallback: ["cursive"] });
 
 export const metadata: Metadata = {
-  title: { default: "gnouht hub", template: "%s · gnouht hub" },
+  title: { default: "gnouht hub", template: "%s | gnouht hub" },
   description: "Courses, deadlines, projects and study groups in one place.",
   // A private workspace: keep it out of search engines.
   robots: { index: false, follow: false },
@@ -14,14 +16,14 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f6f7f9" },
-    { media: "(prefers-color-scheme: dark)", color: "#0c0d10" },
+    { media: "(prefers-color-scheme: light)", color: "#f6f7fb" },
+    { media: "(prefers-color-scheme: dark)", color: "#18211d" },
   ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="en" className={`${sans.variable} ${hand.variable} h-full antialiased`}>
       <body className="min-h-dvh font-sans text-[15px]">{children}</body>
     </html>
   );

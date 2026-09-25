@@ -1,7 +1,7 @@
 "use client";
 
 import { STATUS_LABELS, TASK_KINDS, TASK_STATUSES } from "@hub/core";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { createTask, updateTask } from "@/app/(app)/tasks/actions";
 import { ActionForm, SubmitButton } from "./forms";
 import { Field, Input, Select } from "./ui";
@@ -12,42 +12,109 @@ export interface CourseOption {
   name: string;
 }
 
-export function TaskForm({ courses, compact = false }: { courses: CourseOption[]; compact?: boolean }) {
+export interface ProjectOption {
+  id: string;
+  name: string;
+}
+
+function TaskDetailFields({ courses, projects, errors }: { courses: CourseOption[]; projects: ProjectOption[]; errors?: Record<string, string[] | undefined> }) {
   return (
-    <ActionForm action={createTask} resetOnSuccess hideSuccess={compact} className="grid gap-3 sm:grid-cols-6">
+    <>
+      <Field label="Course" htmlFor="t-course" error={errors?.course_id} className="sm:col-span-3">
+        <Select id="t-course" name="course_id" defaultValue="">
+          <option value="">No course</option>
+          {courses.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.code} {c.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Type" htmlFor="t-kind" error={errors?.kind} className="sm:col-span-3">
+        <Select id="t-kind" name="kind" defaultValue="task">
+          {TASK_KINDS.map((kind) => (
+            <option key={kind} value={kind}>
+              {kind[0]!.toUpperCase() + kind.slice(1)}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      {projects.length ? (
+        <Field label="Project" htmlFor="t-project" error={errors?.project_id} className="sm:col-span-6">
+          <Select id="t-project" name="project_id" defaultValue="">
+            <option value="">No project</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
+      <Field label="Time" htmlFor="t-time" hint="Default 23:59" error={errors?.due_time} className="sm:col-span-3">
+        <Input id="t-time" name="due_time" type="time" />
+      </Field>
+      <Field label="Effort (hours)" htmlFor="t-est" hint="Leave empty to guess" error={errors?.estimate_hours} className="sm:col-span-3">
+        <Input id="t-est" name="estimate_hours" type="number" min={0.25} max={500} step={0.25} />
+      </Field>
+    </>
+  );
+}
+
+export function TaskForm({
+  courses,
+  projects = [],
+  compact = false,
+  autoFocus = false,
+}: {
+  courses: CourseOption[];
+  projects?: ProjectOption[];
+  compact?: boolean;
+  autoFocus?: boolean;
+}) {
+  if (compact) {
+    // Quick add: the title and a date are enough; everything else is one click away.
+    return (
+      <ActionForm action={createTask} resetOnSuccess hideSuccess className="flex flex-col gap-2">
+        {(state) => (
+          <>
+            <div className="flex flex-wrap gap-2">
+              <Input name="title" required maxLength={300} placeholder="What needs doing?" aria-label="Task" className="min-w-48 flex-1" />
+              <Input name="due_date" type="date" aria-label="Due date" className="w-auto" />
+              <SubmitButton pendingLabel="Adding…">Add</SubmitButton>
+            </div>
+            {state.errors?.title ? <p className="text-[12px] text-danger">{state.errors.title[0]}</p> : null}
+            <details className="group">
+              <summary className="w-fit cursor-pointer text-[13px] text-muted hover:text-accent">More details</summary>
+              <div className="mt-3 grid gap-3 sm:grid-cols-6">
+                <TaskDetailFields courses={courses} projects={projects} errors={state.errors} />
+              </div>
+            </details>
+          </>
+        )}
+      </ActionForm>
+    );
+  }
+  return <FullTaskForm courses={courses} projects={projects} autoFocus={autoFocus} />;
+}
+
+function FullTaskForm({ courses, projects, autoFocus }: { courses: CourseOption[]; projects: ProjectOption[]; autoFocus: boolean }) {
+  const titleRef = useRef<HTMLInputElement>(null);
+  // `autoFocus` only acts on mount; the "c" shortcut can arrive while the page is already open.
+  useEffect(() => {
+    if (autoFocus) titleRef.current?.focus();
+  }, [autoFocus]);
+  return (
+    <ActionForm action={createTask} resetOnSuccess className="grid gap-3 sm:grid-cols-6">
       {(state) => (
         <>
           <Field label="Task" htmlFor="t-title" error={state.errors?.title} className="sm:col-span-6">
-            <Input id="t-title" name="title" required maxLength={300} placeholder="Finish lab 3 report" />
+            <Input ref={titleRef} id="t-title" name="title" required maxLength={300} placeholder="Finish lab 3 report" />
           </Field>
-          <Field label="Course" htmlFor="t-course" error={state.errors?.course_id} className="sm:col-span-3">
-            <Select id="t-course" name="course_id" defaultValue="">
-              <option value="">No course</option>
-              {courses.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code} · {c.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Type" htmlFor="t-kind" error={state.errors?.kind} className="sm:col-span-3">
-            <Select id="t-kind" name="kind" defaultValue="task">
-              {TASK_KINDS.map((kind) => (
-                <option key={kind} value={kind}>
-                  {kind[0]!.toUpperCase() + kind.slice(1)}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Due date" htmlFor="t-date" error={state.errors?.due_date} className="sm:col-span-2">
+          <Field label="Due date" htmlFor="t-date" error={state.errors?.due_date} className="sm:col-span-6">
             <Input id="t-date" name="due_date" type="date" />
           </Field>
-          <Field label="Time" htmlFor="t-time" hint="Default 23:59" error={state.errors?.due_time} className="sm:col-span-2">
-            <Input id="t-time" name="due_time" type="time" />
-          </Field>
-          <Field label="Effort (hours)" htmlFor="t-est" hint="Leave empty to guess" error={state.errors?.estimate_hours} className="sm:col-span-2">
-            <Input id="t-est" name="estimate_hours" type="number" min={0.25} max={500} step={0.25} />
-          </Field>
+          <TaskDetailFields courses={courses} projects={projects} errors={state.errors} />
           <div className="sm:col-span-6">
             <SubmitButton pendingLabel="Adding…">Add task</SubmitButton>
           </div>

@@ -1,3 +1,4 @@
+import { ClearLocalState } from "@/components/sign-out-form";
 import type { Metadata } from "next";
 import { SubmitButton } from "@/components/forms";
 import { MagicLinkForm } from "@/components/login-form";
@@ -20,20 +21,27 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const next = safeNextPath(typeof params.next === "string" ? params.next : null);
   const errorKey = typeof params.error === "string" ? params.error : null;
   const error = errorKey ? (ERRORS[errorKey] ?? ERRORS.link) : null;
+  const deleted = params.deleted === "1";
+  const ended = params.ended === "1";
 
   return (
-    <Card className="w-full max-w-sm p-6">
-      <div className="mb-6 flex items-center gap-3">
-        <svg viewBox="0 0 64 64" className="size-9" aria-hidden>
-          <rect width="64" height="64" rx="14" className="fill-accent" />
-          <path d="M20 22h24M20 32h16M20 42h10" stroke="white" strokeWidth="5" strokeLinecap="round" />
-        </svg>
-        <div>
-          <h1 className="text-base font-semibold">gnouht hub</h1>
-          <p className="text-[13px] text-muted">Courses, deadlines and study groups</p>
-        </div>
+    <Card className="w-full max-w-sm p-7">
+      <ClearLocalState />
+      <div className="mb-7">
+        <h1 className="mb-4 font-hand text-[30px] leading-[3.25rem] text-accent">gnouht hub</h1>
+        <p className="text-[14px] text-muted">Your semester in one notebook: classes, deadlines, projects and study groups.</p>
       </div>
 
+      {deleted ? (
+        <p role="status" className="mb-4 rounded-lg bg-ok-soft px-3 py-2 text-[13px] text-ok">
+          Your account and everything in it were deleted.
+        </p>
+      ) : null}
+      {ended ? (
+        <p role="status" className="mb-4 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn">
+          This browser was signed out, because the session was ended (for example with “Sign out everywhere”). Sign in again.
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="mb-4 rounded-lg bg-danger-soft px-3 py-2 text-[13px] text-danger">
           {error}
@@ -65,7 +73,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       <MagicLinkForm next={next} />
 
       <p className="mt-6 text-[12px] leading-relaxed text-muted">
-        Registration is invite-only. Your data is protected by row-level security and never shared outside the groups you join.
+        Registration is invite-only. Nothing you add is visible to anyone else unless you share it with a group.
       </p>
     </Card>
   );

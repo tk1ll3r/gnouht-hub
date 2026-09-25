@@ -1,43 +1,67 @@
 @import "tailwindcss";
 
+/* "Vở ô li & mực tím": a Vietnamese school notebook. Paper and pale ruling; purple fountain-pen ink for
+   actions; the teacher's red pen only for what is late, urgent or destructive; highlighter for matches. */
 :root {
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --border: #e3e6eb;
-  --text: #15171a;
-  --muted: #666b75;
-  --accent: #2458e6;
-  --accent-soft: #e8eefc;
+  --bg: #f6f7fb; /* paper */
+  --surface: #ffffff; /* a clean sheet laid on the paper */
+  --surface-2: #eef0f7;
+  --border: #dadcee; /* notebook ruling */
+  --text: #1c1e2b; /* graphite */
+  --muted: #676b7e; /* pencil */
+  --accent: #3a2e9c; /* mực tím — purple ink */
+  --accent-soft: #eceafa;
   --accent-fg: #ffffff;
-  --danger: #d0342c;
-  --danger-soft: #fdeceb;
-  --warn: #b86e00;
-  --warn-soft: #fdf3e2;
-  --ok: #1b8a4a;
-  --ok-soft: #e6f5ec;
-  --ring: #2458e6;
+  --danger: #c0342e; /* red pen */
+  --danger-soft: #fbeceb;
+  --warn: #8a5a00;
+  --warn-soft: #fff3c2; /* highlighter */
+  --highlight: #ffe36e;
+  --ok: #1e7a57;
+  --ok-soft: #e4f3ec;
+  --margin: #ebb1ae; /* the red margin line */
+  --ring: #3a2e9c;
+  /* Code is written in the two school inks: purple for keywords, blue (mực xanh) for names; strings in
+     green, literals in amber, comments in pencil. */
+  --syn-keyword: #3a2e9c;
+  --syn-name: #1f56a8;
+  --syn-string: #1e7a57;
+  --syn-literal: #9a5b00;
+  --syn-type: #0e6f7c;
+  --syn-attr: #4e5470;
+  --syn-comment: #767b8f;
   color-scheme: light;
 }
 
+/* "Bảng đen": the green classroom board, written on in chalk. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0c0d10;
-    --surface: #14161a;
-    --surface-2: #1b1e23;
-    --border: #282c33;
-    --text: #eceef1;
-    --muted: #9aa0ab;
-    --accent: #5b8cff;
-    --accent-soft: #19233d;
-    --accent-fg: #0c0d10;
-    --danger: #ff6b61;
-    --danger-soft: #3a1714;
-    --warn: #f0a93a;
-    --warn-soft: #36270f;
-    --ok: #4cc47f;
-    --ok-soft: #12301f;
-    --ring: #5b8cff;
+    --bg: #18211d;
+    --surface: #1f2a25;
+    --surface-2: #26332d;
+    --border: #34433b;
+    --text: #e7ece4;
+    --muted: #9aa79e;
+    --accent: #b4a6ff;
+    --accent-soft: #2b2f45;
+    --accent-fg: #18211d;
+    --danger: #ff8a80;
+    --danger-soft: #3b2522;
+    --warn: #f2d46e;
+    --warn-soft: #3a3521;
+    --highlight: #6b5a1a;
+    --ok: #7ed0a2;
+    --ok-soft: #1f3a2e;
+    --margin: #7a3f3b;
+    --ring: #b4a6ff;
+    /* Chalk colours on the board. */
+    --syn-keyword: #b4a6ff;
+    --syn-name: #8cc4ff;
+    --syn-string: #7ed0a2;
+    --syn-literal: #f2d46e;
+    --syn-type: #7fd6d0;
+    --syn-attr: #c7cdc4;
+    --syn-comment: #8f9c93;
     color-scheme: dark;
   }
 }
@@ -56,11 +80,14 @@
   --color-danger-soft: var(--danger-soft);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
+  --color-highlight: var(--highlight);
   --color-ok: var(--ok);
   --color-ok-soft: var(--ok-soft);
+  --color-margin: var(--margin);
   --color-ring: var(--ring);
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-sans: var(--font-sans-ui), ui-sans-serif, system-ui, sans-serif;
+  --font-hand: var(--font-hand-face), cursive;
+  --font-mono: ui-monospace, "Cascadia Code", Menlo, monospace;
 }
 
 @layer base {
@@ -70,6 +97,15 @@
   body {
     background: var(--bg);
     color: var(--text);
+    line-height: 1.55; /* room for stacked Vietnamese diacritics */
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
   }
   :focus-visible {
     outline: 2px solid var(--ring);
@@ -87,11 +123,9 @@
   }
   .prose-hub h3 {
     margin: 1rem 0 0.35rem;
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--muted);
+    color: var(--text);
   }
   .prose-hub p {
     margin: 0.35rem 0;
@@ -124,5 +158,244 @@
     background: var(--surface-2);
     padding: 0.1rem 0.3rem;
     border-radius: 0.25rem;
+  }
+
+  /* Full documents (project files) on top of .prose-hub. */
+  .prose-doc h1 {
+    margin: 0.5rem 0 0.75rem;
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .prose-doc h2 {
+    margin: 1.5rem 0 0.5rem;
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+  .prose-doc h3 {
+    margin: 1.25rem 0 0.4rem;
+    font-size: 0.95rem;
+  }
+  .prose-doc h4,
+  .prose-doc h5,
+  .prose-doc h6 {
+    margin: 1rem 0 0.3rem;
+    font-weight: 600;
+  }
+  .prose-doc ul:has(> li > input[type="checkbox"]) {
+    list-style: none;
+    padding-left: 0.25rem;
+  }
+  .prose-doc blockquote {
+    margin: 0.75rem 0;
+    padding-left: 0.75rem;
+    border-left: 3px solid var(--border);
+    color: var(--muted);
+  }
+  .prose-doc pre {
+    margin: 0.75rem 0;
+    padding: 0.75rem;
+    overflow-x: auto;
+    border-radius: 0.5rem;
+    background: var(--surface-2);
+    font-size: 0.8rem;
+  }
+  .prose-doc pre code {
+    padding: 0;
+    background: none;
+  }
+  .prose-doc hr {
+    margin: 1.25rem 0;
+    border-color: var(--border);
+  }
+  .prose-doc table {
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  .prose-doc th,
+  .prose-doc td {
+    padding: 0.3rem 0.6rem;
+    border: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+  .prose-doc th {
+    background: var(--surface-2);
+    font-weight: 600;
+  }
+  /* A highlighter stroke rather than a box. */
+  mark.hit {
+    background: linear-gradient(transparent 45%, var(--highlight) 45%, var(--highlight) 92%, transparent 92%);
+    color: inherit;
+    padding: 0 0.1rem;
+  }
+
+  /* Ô li ruling behind the Today date line: faint horizontal lines every 0.5rem with a stronger one every
+     2rem, like the four-line grid of a Vietnamese school notebook. */
+  .ruled {
+    background-image:
+      linear-gradient(to bottom, color-mix(in oklab, var(--border) 90%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklab, var(--border) 45%, transparent) 1px, transparent 1px);
+    background-size:
+      100% 2rem,
+      100% 0.5rem;
+    background-position: 0 1.95rem;
+  }
+
+  /* Source files: line numbers sit left of the notebook's red margin line; the line in the URL (#L42)
+     gets a highlighter stroke. Long lines scroll unless word wrap is on. */
+  .code-view {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    tab-size: 4;
+    padding: 0.5rem 0;
+  }
+  .code-line {
+    display: flex;
+    min-width: max-content;
+    scroll-margin-top: 30vh;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 1.65em;
+  }
+  .code-view[data-wrap="true"] .code-line {
+    min-width: 0;
+  }
+  .code-ln {
+    position: sticky;
+    left: 0;
+    flex: none;
+    padding: 0 0.75ch 0 1ch;
+    border-right: 1.5px solid var(--margin);
+    background: var(--surface);
+    color: var(--muted);
+    text-align: right;
+    user-select: none;
+    opacity: 0.75;
+  }
+  .code-view[data-digits="1"] .code-ln,
+  .code-view[data-digits="2"] .code-ln {
+    width: 4.75ch;
+  }
+  .code-view[data-digits="3"] .code-ln {
+    width: 5.75ch;
+  }
+  .code-view[data-digits="4"] .code-ln {
+    width: 6.75ch;
+  }
+  .code-view[data-digits="5"] .code-ln,
+  .code-view[data-digits="6"] .code-ln {
+    width: 7.75ch;
+  }
+  .code-ln:hover {
+    color: var(--accent);
+    opacity: 1;
+  }
+  .code-text {
+    white-space: pre;
+    padding: 0 2ch 0 1.5ch;
+  }
+  .code-view[data-wrap="true"] .code-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+  .code-line:target,
+  .code-line:target .code-ln {
+    background: var(--warn-soft);
+  }
+  .code-line:target .code-ln {
+    color: var(--warn);
+    opacity: 1;
+  }
+  .prose-doc :is(h1, h2, h3, h4, h5, h6):target {
+    border-radius: 0.25rem;
+    background: var(--warn-soft);
+    box-shadow: 0 0 0 0.35rem var(--warn-soft);
+  }
+
+  /* highlight.js token classes (the only styling code receives). */
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-tag,
+  .hljs-name,
+  .hljs-meta .hljs-keyword {
+    color: var(--syn-keyword);
+  }
+  .hljs-title,
+  .hljs-section,
+  .hljs-function .hljs-title,
+  .hljs-selector-id,
+  .hljs-selector-class {
+    color: var(--syn-name);
+  }
+  .hljs-string,
+  .hljs-regexp,
+  .hljs-char,
+  .hljs-template-tag,
+  .hljs-code {
+    color: var(--syn-string);
+  }
+  .hljs-number,
+  .hljs-literal,
+  .hljs-symbol,
+  .hljs-bullet,
+  .hljs-link {
+    color: var(--syn-literal);
+  }
+  .hljs-type,
+  .hljs-built_in,
+  .hljs-title.class_,
+  .hljs-title.class_.inherited__ {
+    color: var(--syn-type);
+  }
+  .hljs-attr,
+  .hljs-attribute,
+  .hljs-property,
+  .hljs-variable,
+  .hljs-template-variable,
+  .hljs-params,
+  .hljs-selector-attr,
+  .hljs-selector-pseudo {
+    color: var(--syn-attr);
+  }
+  .hljs-comment,
+  .hljs-quote,
+  .hljs-meta,
+  .hljs-doctag {
+    color: var(--syn-comment);
+  }
+  .hljs-comment,
+  .hljs-quote,
+  .hljs-emphasis {
+    font-style: italic;
+  }
+  .hljs-strong,
+  .hljs-section {
+    font-weight: 600;
+  }
+  .hljs-addition {
+    color: var(--ok);
+    background: var(--ok-soft);
+  }
+  .hljs-deletion {
+    color: var(--danger);
+    background: var(--danger-soft);
+  }
+
+  .ink-in {
+    animation: ink-in 700ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  @keyframes ink-in {
+    from {
+      opacity: 0;
+      clip-path: inset(0 100% 0 0);
+    }
+    to {
+      opacity: 1;
+      clip-path: inset(0 0 0 0);
+    }
   }
 }

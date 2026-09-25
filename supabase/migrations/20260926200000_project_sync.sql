@@ -305,6 +305,23 @@ begin
 end;
 $$;
 
+-- Milestones a file created go away with the file, and when it stops being shared with that project
+-- (however that happens: a sync, the owner's own update, a revoked device, a deleted account).
+create function private.drop_document_milestones() returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  if tg_op = 'DELETE' or new.visibility <> 'project' or new.project_id is distinct from old.project_id then
+    delete from public.milestones m
+    where m.source = 'markdown' and m.source_ref ->> 'documentId' = old.id::text
+      and (tg_op = 'DELETE' or new.visibility <> 'project' or m.project_id is distinct from new.project_id);
+  end if;
+  return coalesce(new, old);
+end;
+$$;
+create trigger documents_drop_milestones after update of visibility, project_id or delete on public.documents
+  for each row execute function private.drop_document_milestones();
+
 -- A member shows or hides their own synced files in a project. Hiding removes the milestones those files
 -- created; showing asks the agent to send them again (their hash is cleared) so milestones come back.
 create function public.set_document_sharing(p_project uuid, p_share boolean) returns integer

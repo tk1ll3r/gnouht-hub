@@ -1,4 +1,5 @@
-import type { DocumentUpload, ProjectSync } from "@hub/core/protocol";
+import { analyzeDocument, extensionOf } from "@hub/core";
+import type { DocumentPayloadItem, DocumentUpload, ProjectSync } from "@hub/core/protocol";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -72,7 +73,45 @@ export interface FolderSyncResult {
   errors: string[];
 }
 
-type UploadDocument = DocumentUpload["documents"][number];
+/**
+ * The analysed file as the hub stores it. Parsing happens here, on the owner's PC, from text that was
+ * already redacted; the hub validates the result and redacts once more.
+ */
+export function toPayloadItem(file: ListedFile, sha: string, extracted: { text: string; truncated: boolean; redactions: number; error: string | null }): DocumentPayloadItem {
+  const analysis = analyzeDocument({ path: file.path, kind: file.kind, text: extracted.text });
+  const items = analysis.checklist.items.slice(0, 2000);
+  return {
+    path: file.path,
+    title: analysis.title,
+    ext: extensionOf(file.path),
+    kind: file.kind,
+    language: analysis.language,
+    sizeBytes: file.size,
+    sha256: sha,
+    modifiedAt: new Date(file.mtimeMs).toISOString(),
+    excerpt: analysis.excerpt,
+    chunks: analysis.chunks.map((c) => c.content),
+    checklist: items.length
+      ? items.map((i) => ({ key: i.key, text: i.text.slice(0, 1000), status: i.status, section: i.section?.slice(0, 300) ?? null, line: i.line, indent: Math.min(i.indent, 100) }))
+      : null,
+    milestones: analysis.deadlines.slice(0, 300).map((d) => ({
+      key: d.key,
+      title: d.title,
+      dueDate: d.dueDate,
+      startDate: d.startDate,
+      hard: d.hard,
+      line: d.line,
+      done: d.status === "done",
+      origin: d.origin,
+    })),
+    lineCount: analysis.lineCount,
+    outline: analysis.outline,
+    todos: analysis.todos,
+    truncated: extracted.truncated,
+    redactions: extracted.redactions + analysis.redactions,
+    error: extracted.error,
+  };
+}
 
 /**
  * Syncs one watched folder: send the listing, then upload only what the hub asks for. The hub's answer
@@ -99,9 +138,12 @@ export async function syncFolder(cloud: CloudClient, folder: WatchedFolder, cach
     manifest.push({ path: file.path, hash });
   }
 
+  const key = folderKey(folder.root);
   const response = await cloud.post<{ projectId: string; archived: boolean; need: string[] }>("/api/agent/projects", {
-    folderKey: folderKey(folder.root),
+    folderKey: key,
     name: folder.name,
+    slug: folder.slug,
+    projectId: folder.projectId ?? null,
     folderLabel: folderLabel(folder.root),
     manifest,
   } satisfies ProjectSync);
@@ -117,11 +159,15 @@ export async function syncFolder(cloud: CloudClient, folder: WatchedFolder, cach
   };
   if (response.archived) return result;
 
-  let batch: UploadDocument[] = [];
+  let batch: DocumentPayloadItem[] = [];
   let batchBytes = 0;
   const flush = async () => {
     if (!batch.length) return;
-    const res = await cloud.post<{ stored: number; failed: number }>("/api/agent/documents", { projectId: response.projectId, documents: batch });
+    const res = await cloud.post<{ stored: number; failed: number }>("/api/agent/documents", {
+      projectId: response.projectId,
+      folderKey: key,
+      documents: batch,
+    } satisfies DocumentUpload);
     result.uploaded += res.stored;
     if (res.failed) errors.push(`${res.failed} document(s) could not be stored`);
     batch = [];
@@ -142,17 +188,7 @@ export async function syncFolder(cloud: CloudClient, folder: WatchedFolder, cach
     cache.set(file, hash);
     const extracted = await extractText(file.kind, bytes);
     if (extracted.error) errors.push(`${file.path}: ${extracted.error}`.slice(0, 200));
-    const doc: UploadDocument = {
-      path: file.path,
-      kind: file.kind,
-      hash,
-      sizeBytes: file.size,
-      modifiedAt: new Date(file.mtimeMs).toISOString(),
-      text: extracted.text,
-      truncated: extracted.truncated,
-      redactions: extracted.redactions,
-      error: extracted.error,
-    };
+    const doc = toPayloadItem(file, hash, extracted);
     const size = Buffer.byteLength(JSON.stringify(doc));
     if (batch.length && (batchBytes + size > BATCH_BYTES || batch.length >= BATCH_DOCUMENTS)) await flush();
     batch.push(doc);

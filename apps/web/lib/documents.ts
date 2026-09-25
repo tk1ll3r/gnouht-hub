@@ -1,80 +1,81 @@
 import "server-only";
-import { analyzeDocument, inferTaskKind, zonedInstant, type DocumentAnalysis } from "@hub/core";
+import { describeChunks, redactSecrets, type ChecklistStats } from "@hub/core";
 import type { Json } from "@hub/core/db";
-import type { DocumentUpload } from "@hub/core/protocol";
+import type { DocumentPayloadItem } from "@hub/core/protocol";
 import type { AdminClient } from "./supabase/admin";
 
-/** Checklist items stored per document; the rest still count towards progress. */
-const MAX_ITEMS_PER_DOCUMENT = 2000;
-const END_OF_DAY_MINUTES = 23 * 60 + 59;
+const MAX_CHUNK_CHARS = 4000;
 
-type UploadedDocument = DocumentUpload["documents"][number];
+/** Redacts again on the hub (defence in depth: the agent already did) and counts what it removed. */
+function scrub(text: string, counter: { n: number }): string {
+  const { text: clean, count } = redactSecrets(text);
+  counter.n += count;
+  return clean;
+}
 
-/** The JSON arguments of `public.ingest_document` for one uploaded document. */
-export function ingestArgs(doc: UploadedDocument, analysis: DocumentAnalysis, tz: string) {
+export function checklistStats(items: { status: string }[]): ChecklistStats {
+  const stats: ChecklistStats = { total: 0, todo: 0, doing: 0, attention: 0, done: 0, cut: 0 };
+  for (const item of items) {
+    if (!(item.status in stats) || item.status === "total") continue;
+    stats.total++;
+    stats[item.status as keyof Omit<ChecklistStats, "total">]++;
+  }
+  return stats;
+}
+
+/**
+ * The JSON arguments of `public.ingest_document` for one uploaded file. The agent parsed the file; the hub
+ * redacts every text field once more and derives each chunk's line, heading and search terms from the
+ * chunks themselves (they are contiguous) and the file's outline.
+ */
+export function ingestArgs(doc: DocumentPayloadItem) {
+  const removed = { n: 0 };
+  const contents = doc.chunks.map((c) => scrub(c, removed).slice(0, MAX_CHUNK_CHARS));
+  const chunks = describeChunks(contents, doc.outline, doc.kind).map((c) => ({
+    idx: c.ord,
+    content: c.content,
+    line: c.line,
+    heading: c.heading,
+    terms: c.terms ?? null,
+  }));
+  const items = (doc.checklist ?? []).map((i) => ({ ...i, text: scrub(i.text, removed).slice(0, 1000) }));
+  const milestones = doc.milestones.map((m) => ({ ...m, title: scrub(m.title, removed).slice(0, 300) }));
   const document = {
     path: doc.path,
+    title: scrub(doc.title, removed).slice(0, 300),
+    ext: doc.ext,
     kind: doc.kind,
-    title: analysis.title,
-    hash: doc.hash,
+    language: doc.language,
     sizeBytes: doc.sizeBytes,
+    sha256: doc.sha256,
     modifiedAt: doc.modifiedAt,
-    content: analysis.text,
+    excerpt: scrub(doc.excerpt, removed).slice(0, 600),
+    checklist: doc.checklist ? checklistStats(doc.checklist) : null,
+    lineCount: doc.lineCount,
+    outline: doc.outline,
+    todos: doc.todos.map((t) => ({ ...t, text: scrub(t.text, removed).slice(0, 200) })),
     truncated: doc.truncated,
-    redactions: doc.redactions + analysis.redactions,
-    referenceDate: analysis.referenceDate,
-    stats: { ...analysis.checklist.stats },
     error: doc.error,
-    language: analysis.language,
-    lineCount: analysis.lineCount,
-    outline: analysis.outline,
-    todos: analysis.todos,
+    redactions: 0,
   };
-  const chunks = analysis.chunks.map((c) => ({ ord: c.ord, heading: c.heading, content: c.content, line: c.line, ...(c.terms ? { terms: c.terms } : {}) }));
-  const items = analysis.checklist.items.slice(0, MAX_ITEMS_PER_DOCUMENT).map((item) => ({
-    key: item.key,
-    text: item.text,
-    status: item.status,
-    section: item.section?.slice(0, 300) ?? null,
-    line: item.line,
-    indent: Math.min(item.indent, 100),
-  }));
-  const deadlines = analysis.deadlines.map((d) => ({
-    key: d.key,
-    title: d.title,
-    kind: d.origin === "table" ? "milestone" : inferTaskKind(d.title),
-    // Date-only deadlines are due at the end of that day in the owner's time zone.
-    dueAt: zonedInstant(d.dueDate, END_OF_DAY_MINUTES, tz).toISOString(),
-    ref: {
-      path: doc.path,
-      line: d.line,
-      hard: d.hard,
-      start: d.startDate,
-      origin: d.origin,
-      ...(d.status ? { fileStatus: d.status } : {}),
-    },
-  }));
-  return { document, chunks, items, deadlines };
+  document.redactions = doc.redactions + removed.n;
+  return { document, chunks, items, milestones };
 }
 
-export interface IngestProject {
-  id: string;
-  userId: string;
-}
-
-/** Analyses and stores each uploaded document (one atomic RPC per document), then refreshes totals. */
-export async function ingestDocuments(admin: AdminClient, project: IngestProject, tz: string, documents: UploadedDocument[]) {
+/** Stores each uploaded file (one atomic RPC per file), then refreshes the project's totals. */
+export async function ingestDocuments(admin: AdminClient, target: { deviceId: string; projectId: string; folderKey: string }, documents: DocumentPayloadItem[]) {
   let stored = 0;
   const failed: string[] = [];
   for (const doc of documents) {
-    const analysis = analyzeDocument({ path: doc.path, kind: doc.kind, text: doc.text });
-    const args = ingestArgs(doc, analysis, tz);
+    const args = ingestArgs(doc);
     const { error } = await admin.rpc("ingest_document", {
-      p_project: project.id,
+      p_device: target.deviceId,
+      p_project: target.projectId,
+      p_root: target.folderKey,
       p_document: args.document as unknown as Json,
       p_chunks: args.chunks as unknown as Json,
-      p_items: args.items as Json,
-      p_deadlines: args.deadlines as Json,
+      p_items: args.items as unknown as Json,
+      p_milestones: args.milestones as unknown as Json,
     });
     if (error) {
       console.error("ingest_document failed", error.code, error.message);
@@ -83,20 +84,36 @@ export async function ingestDocuments(admin: AdminClient, project: IngestProject
       stored++;
     }
   }
-  await admin.rpc("refresh_project_stats", { p_project: project.id });
+  await admin.rpc("refresh_project_stats", { p_project: target.projectId });
   return { stored, failed };
 }
 
-/** Deletes documents that are no longer in the agent's listing and returns the paths it must (re)send. */
-export async function reconcileManifest(admin: AdminClient, projectId: string, manifest: { path: string; hash: string }[]) {
-  const { data: rows, error } = await admin.from("project_documents").select("id, path, content_hash").eq("project_id", projectId);
+/**
+ * Deletes this folder's documents that are no longer in the agent's listing and returns the paths it must
+ * (re)send: new or changed files, and files that were synced into a different project before.
+ */
+export async function reconcileManifest(
+  admin: AdminClient,
+  target: { deviceId: string; projectId: string; folderKey: string },
+  manifest: { path: string; hash: string }[],
+) {
+  const { data: rows, error } = await admin
+    .from("documents")
+    .select("id, path, sha256, project_id")
+    .eq("device_id", target.deviceId)
+    .eq("root_key", target.folderKey);
   if (error) throw new Error("could not read documents");
   const wanted = new Map(manifest.map((m) => [m.path, m.hash]));
   const stale = (rows ?? []).filter((row) => !wanted.has(row.path)).map((row) => row.id);
   for (let i = 0; i < stale.length; i += 100) {
-    await admin.from("project_documents").delete().in("id", stale.slice(i, i + 100));
+    await admin.from("documents").delete().in("id", stale.slice(i, i + 100));
   }
-  const stored = new Map((rows ?? []).map((row) => [row.path, row.content_hash]));
-  const need = manifest.filter((m) => stored.get(m.path) !== m.hash).map((m) => m.path);
+  const stored = new Map((rows ?? []).map((row) => [row.path, row]));
+  const need = manifest
+    .filter((m) => {
+      const row = stored.get(m.path);
+      return !row || row.sha256 !== m.hash || row.project_id !== target.projectId;
+    })
+    .map((m) => m.path);
   return { need, removed: stale.length };
 }

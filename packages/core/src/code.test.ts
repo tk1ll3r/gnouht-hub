@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFileTree, chunkCode, codeLanguageOf, extractTodos, headingSlugger, identifierWords, languageLabel, outlineOf } from "./code";
+import { buildFileTree, codeLanguageOf, extractTodos, headingSlugger, identifierWords, languageLabel, outlineOf, symbolPathAt } from "./code";
 import { analyzeDocument, documentKindOf } from "./documents";
 
 describe("codeLanguageOf / documentKindOf", () => {
@@ -140,21 +140,28 @@ describe("extractTodos", () => {
   });
 });
 
-describe("identifierWords and chunkCode", () => {
+describe("identifierWords and symbolPathAt", () => {
   it("splits camelCase and snake_case identifiers into searchable words", () => {
     expect(identifierWords("parseChecklistItems(MAX_TODO_TAGS, HTTPServer)")).toBe("parse checklist items max todo tags http server");
   });
 
-  it("chunks by line windows, labels chunks with their symbol and keeps line numbers", () => {
-    const lines = ["export class Parser {", ...Array.from({ length: 70 }, (_, i) => (i === 40 ? "" : `  // line ${i}`)), "  parseLine(input: string) {", "    return input;", "  }", "}"];
-    const text = lines.join("\n");
+  it("names the symbol a line sits in, innermost two levels", () => {
+    const text = ["export class Parser {", "  parseLine(input: string) {", "    return input;", "  }", "}", "function other() {}"].join("\n");
     const outline = outlineOf(text, "typescript");
-    const chunks = chunkCode(text, outline, 60);
-    expect(chunks.length).toBe(2);
-    expect(chunks[0]).toMatchObject({ ord: 0, line: 1, heading: "Parser" });
-    expect(chunks[1]!.line).toBeGreaterThan(40);
-    expect(chunks[1]!.content).toContain("parseLine");
-    expect(chunks[1]!.terms).toContain("parse line");
+    expect(symbolPathAt(outline, 3)).toBe("Parser › parseLine");
+    expect(symbolPathAt(outline, 6)).toBe("other");
+    expect(symbolPathAt([], 1)).toBeNull();
+  });
+
+  it("gives source chunks their line, symbol and identifier terms", () => {
+    const text = `export class Parser {\n${"  // filler line\n".repeat(300)}  parseLine(input: string) {\n    return input;\n  }\n}\n`;
+    const result = analyzeDocument({ path: "src/parser.ts", kind: "code", text });
+    expect(result.chunks.map((c) => c.content).join("")).toBe(text);
+    const last = result.chunks.at(-1)!;
+    expect(result.chunks.length).toBeGreaterThan(1);
+    expect(last.line).toBe(1 + result.chunks.slice(0, -1).reduce((n, c) => n + (c.content.match(/\n/g) ?? []).length, 0));
+    expect(result.chunks[0]).toMatchObject({ line: 1, heading: "Parser" });
+    expect(result.chunks.some((c) => c.terms?.includes("parse line"))).toBe(true);
   });
 });
 

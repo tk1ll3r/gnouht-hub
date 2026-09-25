@@ -64,7 +64,8 @@ export default async function GroupsPage({ searchParams }: PageProps<"/groups">)
                       <span className="inline-flex items-center gap-1">
                         <Users className="size-3.5" /> {`${group.members} member${group.members === 1 ? "" : "s"}`}
                       </span>
-                      <span>{`${group.sharedProjects} shared project${group.sharedProjects === 1 ? "" : "s"}`}</span>
+                      <span>{`${group.projects} project${group.projects === 1 ? "" : "s"}`}</span>
+                      {group.course_code ? <span>{group.course_code}</span> : null}
                     </p>
                   </CardBody>
                 </Card>

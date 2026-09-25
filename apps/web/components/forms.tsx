@@ -117,3 +117,50 @@ export function InlineAction({
     </form>
   );
 }
+
+/**
+ * A select that submits its Server Action as soon as it changes (for per-row settings such as a role or an
+ * assignee). Without JavaScript the small Save button does the same.
+ */
+export function SelectAction({
+  action,
+  fields,
+  name,
+  value,
+  options,
+  label,
+  className,
+}: {
+  action: (formData: FormData) => Promise<void>;
+  fields: Record<string, string>;
+  name: string;
+  value: string;
+  options: { value: string; label: string }[];
+  label: string;
+  className?: string;
+}) {
+  const formRef = useRef<HTMLFormElement>(null);
+  return (
+    <form ref={formRef} action={action} className={cn("inline-flex items-center gap-1", className)}>
+      {Object.entries(fields).map(([key, v]) => (
+        <input key={key} type="hidden" name={key} value={v} />
+      ))}
+      <select
+        name={name}
+        defaultValue={value}
+        aria-label={label}
+        onChange={() => formRef.current?.requestSubmit()}
+        className="h-7 rounded-md border border-border bg-surface px-1.5 text-[12.5px] focus:border-accent"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <noscript>
+        <button className="text-[12px] text-accent">Save</button>
+      </noscript>
+    </form>
+  );
+}

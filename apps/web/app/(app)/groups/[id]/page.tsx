@@ -1,5 +1,5 @@
 import { formatZoned, parseClock } from "@hub/core";
-import { ArrowLeft, CalendarClock, Eye, EyeOff, LogOut, Trash2, UserMinus } from "lucide-react";
+import { ArrowLeft, CalendarClock, Eye, EyeOff, Flag, LogOut, Trash2, Unlink, UserMinus } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -7,22 +7,24 @@ import { AvailabilityHeatmap } from "@/components/charts";
 import { InlineAction } from "@/components/forms";
 import { GroupForm, InviteForm } from "@/components/group-forms";
 import { Badge, buttonClass, Card, CardBody, CardHeader, ColorDot, EmptyState, ProgressBar, Select } from "@/components/ui";
+import { linkGroup, unlinkGroup } from "@/app/(app)/projects/actions";
 import { requireUser } from "@/lib/auth";
 import { loadWorkspace } from "@/lib/data";
-import { formatDue } from "@/lib/format";
+import { formatDayKey, formatDue } from "@/lib/format";
 import { groupAvailability, type GroupAvailability } from "@/lib/groups";
-import { projectProgress } from "@/lib/projects";
+import { projectProgress, ROLE_LABELS } from "@/lib/projects";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { uuid } from "@/lib/validation";
-import { deleteGroup, removeMember, revokeInvite, setShareBusy, shareProject, unshareProject } from "../actions";
+import { deleteGroup, removeMember, revokeInvite, setShareBusy } from "../actions";
 
 export const metadata: Metadata = { title: "Group" };
 
-interface SharedProject {
+interface LinkedProject {
   id: string;
   name: string;
   color: string;
-  user_id: string;
+  owner_id: string;
+  status: string;
   items_total: number;
   items_done: number;
   items_cut: number;
@@ -44,32 +46,54 @@ export default async function GroupPage({ params }: PageProps<"/groups/[id]">) {
   const isOwner = me.role === "owner";
 
   const now = new Date();
-  const [ws, sharesRes, myProjectsRes, invitesRes] = await Promise.all([
+  const [ws, linksRes, ledRes, invitesRes] = await Promise.all([
     loadWorkspace(supabase, user.id),
-    supabase.from("project_shares").select("project_id, shared_by, projects(id, name, color, user_id, items_total, items_done, items_cut, items_attention)").eq("group_id", id),
-    supabase.from("projects").select("id, name").eq("user_id", user.id).neq("status", "archived").order("name"),
+    supabase
+      .from("project_groups")
+      .select("project_id, default_role, projects(id, name, color, owner_id, status, items_total, items_done, items_cut, items_attention)")
+      .eq("group_id", id),
+    supabase.from("projects").select("id, name").eq("owner_id", user.id).neq("status", "archived").order("name"),
     isOwner
       ? supabase.from("group_invites").select("id, email, expires_at, accepted_at, revoked_at").eq("group_id", id).is("accepted_at", null).is("revoked_at", null).gt("expires_at", now.toISOString()).order("created_at")
       : Promise.resolve({ data: [] as { id: string; email: string; expires_at: string }[] }),
   ]);
   const tz = ws.options.tz;
-  const shares = (sharesRes.data ?? []).flatMap((s) => (s.projects ? [{ ...s, project: s.projects as SharedProject }] : []));
-  const sharedIds = shares.map((s) => s.project_id);
-  const shareable = (myProjectsRes.data ?? []).filter((p) => !sharedIds.includes(p.id));
+  const todayKey = formatZoned(now, "yyyy-MM-dd", tz);
+  // A project whose lead removed the caller is linked but unreadable: it is left out.
+  const links = (linksRes.data ?? []).flatMap((l) => (l.projects ? [{ role: l.default_role as "editor" | "viewer", project: l.projects as LinkedProject }] : []));
+  const linkedIds = links.map((l) => l.project.id);
+  const linkable = (ledRes.data ?? []).filter((p) => !linkedIds.includes(p.id));
   const names = new Map((roster ?? []).map((m) => [m.user_id, m.user_id === user.id ? "you" : m.display_name]));
+  const projectById = new Map(links.map((l) => [l.project.id, l.project]));
 
-  const { data: deadlines } = sharedIds.length
-    ? await supabase
-        .from("tasks")
-        .select("id, title, due_at, status, project_id")
-        .in("project_id", sharedIds)
-        .not("status", "in", "(done,cut)")
-        .gte("due_at", new Date(now.getTime() - 7 * 86_400_000).toISOString())
-        .lte("due_at", new Date(now.getTime() + 30 * 86_400_000).toISOString())
-        .order("due_at")
-        .limit(30)
-    : { data: [] };
-  const projectById = new Map(shares.map((s) => [s.project_id, s.project]));
+  const [{ data: openTasks }, { data: milestones }] = linkedIds.length
+    ? await Promise.all([
+        supabase.from("tasks").select("id, title, due_at, status, project_id, assignee_id").in("project_id", linkedIds).not("status", "in", "(done,cut)").limit(1000),
+        supabase
+          .from("milestones")
+          .select("id, title, due_on, hard, project_id")
+          .in("project_id", linkedIds)
+          .eq("done", false)
+          .gte("due_on", formatZoned(new Date(now.getTime() - 7 * 86_400_000), "yyyy-MM-dd", tz))
+          .lte("due_on", formatZoned(new Date(now.getTime() + 30 * 86_400_000), "yyyy-MM-dd", tz))
+          .order("due_on")
+          .limit(20),
+      ])
+    : [{ data: [] }, { data: [] }];
+  const tasks = openTasks ?? [];
+  const dueSoon = tasks
+    .filter((t) => t.due_at && new Date(t.due_at).getTime() < now.getTime() + 14 * 86_400_000)
+    .sort((a, b) => a.due_at!.localeCompare(b.due_at!))
+    .slice(0, 15);
+  // Who carries what across the group's projects: open and overdue tasks per member.
+  const workload = (roster ?? [])
+    .map((m) => {
+      const theirs = tasks.filter((t) => t.assignee_id === m.user_id);
+      return { id: m.user_id, name: names.get(m.user_id)!, open: theirs.length, overdue: theirs.filter((t) => t.due_at && new Date(t.due_at) < now).length };
+    })
+    .sort((a, b) => b.open - a.open || a.name.localeCompare(b.name));
+  const unassigned = tasks.filter((t) => !t.assignee_id).length;
+  const busiest = Math.max(1, ...workload.map((w) => w.open));
 
   // Free/busy overlap across members who opted in. Uses the service role after the membership check
   // above, is rate limited, and only returns counts.
@@ -93,12 +117,13 @@ export default async function GroupPage({ params }: PageProps<"/groups/[id]">) {
           <div className="flex items-center gap-2">
             <ColorDot color={group.color} size={12} />
             <h1 className="text-xl font-semibold tracking-tight">{group.name}</h1>
+            {group.course_code ? <Badge tone="accent">{group.course_code}</Badge> : null}
             {isOwner ? <Badge>owner</Badge> : null}
           </div>
           {group.description ? <p className="mt-1 max-w-3xl text-sm text-muted">{group.description}</p> : null}
         </div>
         {!isOwner ? (
-          <InlineAction action={removeMember} fields={{ group_id: group.id, user_id: user.id }} confirm="Leave this group? Projects you shared are withdrawn." variant="secondary" size="md">
+          <InlineAction action={removeMember} fields={{ group_id: group.id, user_id: user.id }} confirm="Leave this group? You also leave the projects you joined through it, and your tasks there become unassigned." variant="secondary" size="md">
             <LogOut className="size-4" /> Leave
           </InlineAction>
         ) : null}
@@ -174,56 +199,79 @@ export default async function GroupPage({ params }: PageProps<"/groups/[id]">) {
           </Card>
 
           <Card>
-            <CardHeader title="Team deadlines" description="Open milestones of shared projects in the next 30 days." />
-            {deadlines?.length ? (
+            <CardHeader title="Coming up" description="Milestones and task deadlines of the group's projects, with who has each task." />
+            {milestones?.length || dueSoon.length ? (
               <ul className="divide-y divide-border">
-                {deadlines.map((task) => {
+                {(milestones ?? []).map((m) => {
+                  const project = projectById.get(m.project_id);
+                  return (
+                    <li key={m.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                      <Link href={`/projects/${m.project_id}#milestones`} className="flex min-w-0 items-center gap-2 hover:text-accent">
+                        <Flag className={m.hard ? "size-3.5 shrink-0 text-danger" : "size-3.5 shrink-0 text-muted"} aria-label={m.hard ? "Hard deadline" : "Milestone"} />
+                        <span className="truncate font-medium">{m.title}</span>
+                        {project ? <span className="shrink-0 text-[12px] text-muted">{project.name}</span> : null}
+                      </Link>
+                      <span className={m.due_on < todayKey ? "shrink-0 text-[12px] text-danger" : "shrink-0 text-[12px] text-muted"}>{formatDayKey(m.due_on, todayKey)}</span>
+                    </li>
+                  );
+                })}
+                {dueSoon.map((task) => {
                   const project = task.project_id ? projectById.get(task.project_id) : null;
-                  const overdue = task.due_at ? new Date(task.due_at) < now : false;
+                  const overdue = new Date(task.due_at!) < now;
                   return (
                     <li key={task.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                      <span className="flex min-w-0 items-center gap-2">
+                      <Link href={`/projects/${task.project_id}#tasks`} className="flex min-w-0 items-center gap-2 hover:text-accent">
                         {project ? <ColorDot color={project.color} size={8} /> : null}
                         <span className="truncate">{task.title}</span>
-                        {project ? <span className="shrink-0 text-[12px] text-muted">{project.name}</span> : null}
-                      </span>
-                      <span className={overdue ? "shrink-0 text-[12px] text-danger" : "shrink-0 text-[12px] text-muted"}>
-                        {task.due_at ? formatDue(task.due_at, tz, now) : ""}
-                      </span>
+                        <span className={task.assignee_id ? "shrink-0 text-[12px] text-muted" : "shrink-0 text-[12px] text-warn"}>
+                          {task.assignee_id ? (names.get(task.assignee_id) ?? "another member") : "unassigned"}
+                        </span>
+                      </Link>
+                      <span className={overdue ? "shrink-0 text-[12px] text-danger" : "shrink-0 text-[12px] text-muted"}>{formatDue(task.due_at!, tz, now)}</span>
                     </li>
                   );
                 })}
               </ul>
             ) : (
-              <EmptyState title="No upcoming team deadlines">Share a project with milestones to see them here.</EmptyState>
+              <EmptyState title="Nothing due soon">Milestones and dated tasks of the group&apos;s projects show up here.</EmptyState>
             )}
           </Card>
 
           <Card>
-            <CardHeader title="Shared projects" description="Members can read progress, checklists and documents. Only the owner can change them." />
-            {shares.length ? (
+            <CardHeader
+              title="Projects"
+              description="Everyone in the group is a member of these projects. The project lead assigns tasks and decides who may change each one."
+            />
+            {links.length ? (
               <ul className="divide-y divide-border">
-                {shares.map(({ project, shared_by }) => {
+                {links.map(({ project, role }) => {
                   const progress = projectProgress(project);
-                  const mine = project.user_id === user.id;
+                  const canUnlink = project.owner_id === user.id || isOwner;
                   return (
                     <li key={project.id} className="flex items-center gap-3 px-4 py-3">
                       <Link href={`/projects/${project.id}`} className="min-w-0 flex-1">
                         <span className="flex items-center gap-2 text-sm font-medium">
                           <ColorDot color={project.color} size={8} />
                           <span className="truncate">{project.name}</span>
+                          {project.status !== "active" ? <Badge>{project.status}</Badge> : null}
                           {project.items_attention ? <Badge tone="warn">{project.items_attention} attention</Badge> : null}
                         </span>
                         <span className="mt-1.5 flex items-center gap-2">
                           <ProgressBar value={progress.ratio} tone="ok" className="max-w-48" label={`${project.name} progress`} />
                           <span className="shrink-0 text-[12px] text-muted">
-                            {progress.basis === "checklist" ? `${progress.done}/${progress.countable} done` : "no checklist"}, shared by {names.get(shared_by) ?? "a former member"}
+                            {progress.basis === "checklist" ? `${progress.done}/${progress.countable} done` : "no checklist"}, led by {names.get(project.owner_id) ?? "someone outside the group"}, members join as{" "}
+                            {ROLE_LABELS[role].toLowerCase()}
                           </span>
                         </span>
                       </Link>
-                      {mine || isOwner ? (
-                        <InlineAction action={unshareProject} fields={{ group_id: group.id, project_id: project.id }} confirm="Stop sharing this project with the group?" title="Stop sharing">
-                          <Trash2 className="size-3.5" aria-label="Stop sharing" />
+                      {canUnlink ? (
+                        <InlineAction
+                          action={unlinkGroup}
+                          fields={{ group_id: group.id, project_id: project.id }}
+                          confirm="Unlink this project? Members who joined through the group leave it and their tasks become unassigned."
+                          title="Unlink project"
+                        >
+                          <Unlink className="size-3.5" aria-label="Unlink" />
                         </InlineAction>
                       ) : null}
                     </li>
@@ -231,23 +279,30 @@ export default async function GroupPage({ params }: PageProps<"/groups/[id]">) {
                 })}
               </ul>
             ) : (
-              <EmptyState title="Nothing shared yet" />
+              <EmptyState title="No projects yet">Link a project you lead: the whole group joins it and you can hand out tasks.</EmptyState>
             )}
-            {shareable.length ? (
+            {linkable.length ? (
               <CardBody className="border-t border-border">
-                <form action={shareProject} className="flex flex-wrap items-center gap-2">
+                <form action={linkGroup} className="flex flex-wrap items-center gap-2">
                   <input type="hidden" name="group_id" value={group.id} />
-                  <label htmlFor="share-project" className="text-[13px] font-medium">
-                    Share one of your projects
+                  <label htmlFor="link-project" className="text-[13px] font-medium">
+                    Link a project you lead
                   </label>
-                  <Select id="share-project" name="project_id" className="w-auto min-w-48 flex-1">
-                    {shareable.map((p) => (
+                  <Select id="link-project" name="project_id" className="w-auto min-w-40 flex-1">
+                    {linkable.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
                       </option>
                     ))}
                   </Select>
-                  <button className={buttonClass("secondary", "md")}>Share</button>
+                  <label htmlFor="link-role" className="sr-only">
+                    Role of the group&apos;s members
+                  </label>
+                  <Select id="link-role" name="role" defaultValue="editor" className="w-auto">
+                    <option value="editor">as editors</option>
+                    <option value="viewer">as members</option>
+                  </Select>
+                  <button className={buttonClass("secondary", "md")}>Link</button>
                 </form>
               </CardBody>
             ) : null}
@@ -255,6 +310,24 @@ export default async function GroupPage({ params }: PageProps<"/groups/[id]">) {
         </div>
 
         <div className="flex flex-col gap-6">
+          {links.length ? (
+            <Card>
+              <CardHeader title="Workload" description={`Open tasks assigned in the group's projects${unassigned ? `; ${unassigned} still unassigned` : ""}.`} />
+              <ul className="flex flex-col gap-2 px-4 py-3">
+                {workload.map((w) => (
+                  <li key={w.id} className="grid grid-cols-[minmax(0,8rem)_1fr_auto] items-center gap-2 text-[13px]">
+                    <span className="truncate">{w.name}</span>
+                    <ProgressBar value={w.open / busiest} tone={w.overdue ? "warn" : "accent"} label={`${w.name}: ${w.open} open tasks`} />
+                    <span className="text-right text-[12px] text-muted tabular-nums">
+                      {w.open}
+                      {w.overdue ? <span className="text-danger"> · {w.overdue} late</span> : null}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader title="Members" description={`${roster?.length ?? 0} of 30`} />
             <ul className="divide-y divide-border">
@@ -311,7 +384,7 @@ export default async function GroupPage({ params }: PageProps<"/groups/[id]">) {
                 }
               />
               <CardBody>
-                <GroupForm group={{ id: group.id, name: group.name, description: group.description, color: group.color }} />
+                <GroupForm group={{ id: group.id, name: group.name, description: group.description, color: group.color, course_code: group.course_code }} />
               </CardBody>
             </Card>
           ) : null}

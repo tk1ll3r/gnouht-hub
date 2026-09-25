@@ -92,7 +92,7 @@ afterAll(() => {
   rmSync(outside, { recursive: true, force: true });
 });
 
-const folder = (): WatchedFolder => ({ root, name: "Demo", include: DEFAULT_INCLUDE, exclude: [] });
+const folder = (): WatchedFolder => ({ root, name: "Demo", slug: "demo", include: DEFAULT_INCLUDE, exclude: [] });
 
 describe("listFolder", () => {
   it("lists only included files, skipping hidden, dependency, secret-looking, oversized and linked paths", async () => {
@@ -190,7 +190,10 @@ describe("extractText", () => {
 
 describe("syncFolder", () => {
   function fakeHub(need: (paths: string[]) => string[]) {
-    const calls: { path: string; body: { manifest?: { path: string }[]; documents?: { path: string; text: string }[] } }[] = [];
+    const calls: {
+      path: string;
+      body: { slug?: string; manifest?: { path: string }[]; documents?: { path: string; chunks: string[]; checklist: { status: string }[] | null; milestones: { dueDate: string }[] }[] };
+    }[] = [];
     const fetchImpl = (async (url: URL, init: RequestInit) => {
       const body = JSON.parse(String(init.body));
       calls.push({ path: url.pathname, body });
@@ -208,9 +211,13 @@ describe("syncFolder", () => {
     const result = await syncFolder(cloud, folder(), new HashCache(null));
     expect(result).toMatchObject({ files: 3, uploaded: 1, archived: false });
     expect(calls.map((c) => c.path)).toEqual(["/api/agent/projects", "/api/agent/documents"]);
+    expect(calls[0]!.body.slug).toBe("demo");
     const uploaded = calls[1]!.body.documents!;
     expect(uploaded.map((d) => d.path)).toEqual(["Tiến độ.md"]);
-    expect(uploaded[0]!.text).not.toContain("sk-ant");
+    // Parsed on the PC: redacted text as contiguous chunks, checklist items and dated milestones.
+    expect(uploaded[0]!.chunks.join("")).not.toContain("sk-ant");
+    expect(uploaded[0]!.checklist?.map((i) => i.status)).toEqual(["done", "todo"]);
+    expect(uploaded[0]!.milestones.map((m) => m.dueDate)).toEqual(["2026-10-05"]);
   });
 
   it("never reads a path the hub asks for unless it listed that path itself", async () => {

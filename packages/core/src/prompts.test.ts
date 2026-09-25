@@ -47,12 +47,13 @@ describe("prompt builders", () => {
     expect(brief[0]!.content).toContain("English");
     expect(brief[1]!.content).toContain("6.5 hours");
     const project = projectSummaryPrompt(
-      { nowText: "Fri", name: "IDS", description: null, progress: "5/15", attention: ["Lệch lớp"], inProgress: [], openSample: [], recentlyDone: [], milestones: ["Nộp abstract, 2 Oct"] },
+      { nowText: "Fri", name: "IDS", description: null, progress: "5/15", attention: ["Lệch lớp"], inProgress: [], openSample: [], recentlyDone: [], milestones: ["Nộp abstract, 2 Oct"], teamTasks: ["Viết Related work: Lan, todo, overdue"] },
       "vi",
       nonce,
     );
     expect(project[1]!.content).toContain("- Lệch lớp");
     expect(project[1]!.content).toContain("In progress:\n(none)");
+    expect(project[1]!.content).toContain("Open team tasks (who has them):\n- Viết Related work: Lan, todo, overdue");
   });
 });
 

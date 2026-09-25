@@ -19,22 +19,22 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
   const { q, project, kind } = searchSchema.parse({ q: params.q, project: params.project, kind: params.kind });
   const { user, supabase } = await requireUser();
   const [projects, ai, { data: recent }] = await Promise.all([
-    loadProjectOptions(supabase),
+    loadProjectOptions(supabase, user.id),
     loadAiStatus(supabase, user.id),
     supabase.from("ai_jobs").select("id, question, status, created_at").eq("kind", "ask_docs").order("created_at", { ascending: false }).limit(5),
   ]);
   const projectById = new Map(projects.map((p) => [p.id, p]));
 
-  let hits: { chunk_id: number; document_id: string; project_id: string; heading: string | null; content: string; line: number }[] = [];
+  let hits: { idx: number; document_id: string; project_id: string; heading: string | null; content: string; line: number }[] = [];
   let docs = new Map<string, { id: string; title: string; path: string; kind: string; language: string | null }>();
   const limited = q ? !(await allow(`search:${user.id}`, 60, 60)) : false;
   if (q && !limited) {
     const kinds = kind === "code" ? ["code"] : kind === "notes" ? ["markdown", "text", "docx", "pdf", "pptx"] : undefined;
-    const { data } = await supabase.rpc("search_documents", { p_query: q, p_project: project, p_limit: 40, p_kinds: kinds });
+    const { data } = await supabase.rpc("search_chunks", { p_query: q, p_project: project, p_limit: 40, p_kinds: kinds });
     hits = data ?? [];
     const ids = [...new Set(hits.map((h) => h.document_id))];
     if (ids.length) {
-      const { data: rows } = await supabase.from("project_documents").select("id, title, path, kind, language").in("id", ids);
+      const { data: rows } = await supabase.from("documents").select("id, title, path, kind, language").in("id", ids);
       docs = new Map((rows ?? []).map((r) => [r.id, r]));
     }
   }
@@ -97,7 +97,7 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
-              {p.user_id !== user.id ? " (shared)" : ""}
+              {p.owner_id !== user.id ? " (team)" : ""}
             </option>
           ))}
         </Select>
@@ -139,7 +139,7 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
               const doc = docs.get(hit.document_id);
               const proj = projectById.get(hit.project_id);
               return (
-                <li key={hit.chunk_id}>
+                <li key={`${hit.document_id}:${hit.idx}`}>
                   <Link
                     href={`/projects/${hit.project_id}/docs/${hit.document_id}${doc?.kind === "code" || doc?.kind === "text" ? `#L${hit.line}` : ""}`}
                     className="block px-4 py-3 hover:bg-surface-2/60"
@@ -150,7 +150,7 @@ export default async function DocsPage({ searchParams }: PageProps<"/docs">) {
                       {hit.heading && hit.heading !== doc?.title ? <span className="text-muted">› {hit.heading}</span> : null}
                       {doc ? <Badge className="ml-auto">{doc.kind === "code" ? languageLabel(doc.language) : doc.kind}</Badge> : null}
                     </p>
-                    <p className={cn("mt-1 text-[13px] leading-relaxed text-muted", doc?.kind === "code" && "line-clamp-6 font-mono text-[12px] whitespace-pre-wrap")}>
+                    <p className={cn("mt-1 line-clamp-4 text-[13px] leading-relaxed text-muted", doc?.kind === "code" && "line-clamp-6 font-mono text-[12px] whitespace-pre-wrap")}>
                       {highlightSnippet(hit.content, q).map((part, index) =>
                         part.hit ? (
                           <mark key={index} className="hit text-text">

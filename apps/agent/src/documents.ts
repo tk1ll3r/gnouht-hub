@@ -43,6 +43,10 @@ const MAX_DEPTH = 16;
 export interface WatchedFolder {
   root: string;
   name: string;
+  /** Hub project slug (see the config schema). */
+  slug: string;
+  /** Explicit team project, when the folder feeds someone else's project. */
+  projectId?: string | null;
   include: string[];
   exclude: string[];
 }

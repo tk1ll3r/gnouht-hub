@@ -1,15 +1,15 @@
 import { formatHours, formatZoned, parseClock, TIER_LABELS, type UrgencyTier } from "@hub/core";
-import { AlertTriangle, CalendarPlus, CheckCircle2, ExternalLink } from "lucide-react";
+import { AlertTriangle, CalendarPlus, CheckCircle2, ExternalLink, Flag } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import Markdown from "react-markdown";
 import { AiAnswer } from "@/components/ai-answer";
 import { LoadChart } from "@/components/charts";
 import { TaskControls, TaskForm } from "@/components/task-forms";
-import { ButtonLink, Card, CardBody, CardHeader, ColorDot, EmptyState, Meta } from "@/components/ui";
+import { Badge, ButtonLink, Card, CardBody, CardHeader, ColorDot, EmptyState, Meta } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { buildToday, type AgendaEntry } from "@/lib/data";
-import { formatDue } from "@/lib/format";
+import { formatDayKey, formatDue } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Today" };
@@ -146,6 +146,7 @@ export default async function TodayPage() {
                       <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                         <span className={cn("text-[12.5px] font-semibold", TIER_TEXT[tier])}>{item.overdue ? "Overdue" : TIER_LABELS[item.tier]}</span>
                         <span className="text-[16px] leading-snug font-medium">{task.title}</span>
+                        {task.assigned ? <Badge tone="accent">assigned to you</Badge> : null}
                         {ref?.url ? (
                           <a href={ref.url} target="_blank" rel="noopener noreferrer" className="self-center text-muted hover:text-accent" aria-label="Open in Moodle">
                             <ExternalLink className="size-3.5" />
@@ -168,7 +169,11 @@ export default async function TodayPage() {
                           item.reason,
                         ]}
                       />
-                      <TaskControls id={task.id} status={task.status} progress={task.progress} estimate={task.estimateHours} />
+                      {task.editable ? (
+                        <TaskControls id={task.id} status={task.status} progress={task.progress} estimate={task.estimateHours} />
+                      ) : (
+                        <p className="text-[12.5px] text-muted">Locked by the project lead.</p>
+                      )}
                     </div>
                   </li>
                 );
@@ -232,6 +237,27 @@ export default async function TodayPage() {
             </CardBody>
           </Card>
 
+          {data.milestones.length ? (
+            <Card>
+              <CardHeader title="Project milestones" description="Open milestones of your projects in the next two weeks." />
+              <CardBody className="py-1">
+                <ul className="divide-y divide-border/70">
+                  {data.milestones.map((m) => (
+                    <li key={m.id} className="flex items-baseline justify-between gap-3 py-2.5 text-[14px]">
+                      <Link href={`/projects/${m.project.id}#milestones`} className="flex min-w-0 items-center gap-2 hover:text-accent">
+                        <Flag className={cn("size-3.5 shrink-0", m.hard ? "text-danger" : "text-muted")} aria-label={m.hard ? "Hard deadline" : undefined} />
+                        <span className="min-w-0 truncate">
+                          <span className="font-medium">{m.title}</span> <span className="text-muted">· {m.project.name}</span>
+                        </span>
+                      </Link>
+                      <span className="shrink-0 text-[12.5px] text-muted tabular-nums">{formatDayKey(m.dueOn, data.todayKey)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardBody>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader title="Next 14 days" description="Busy and free hours; dots mark deadlines." />
             <CardBody>
@@ -264,7 +290,7 @@ export default async function TodayPage() {
           <h2 id="add-task" className="mb-3 text-[15px] font-semibold">
             Add a task
           </h2>
-          <TaskForm courses={courses} projects={data.projects.map((p) => ({ id: p.id, name: p.name }))} compact />
+          <TaskForm courses={courses} projects={data.projects.filter((p) => p.role !== "viewer").map((p) => ({ id: p.id, name: p.name }))} compact />
         </section>
       </div>
     </>

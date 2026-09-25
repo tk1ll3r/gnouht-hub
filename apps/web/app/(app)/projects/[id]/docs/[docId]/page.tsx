@@ -1,4 +1,4 @@
-import { ArrowLeft, Eye, FileCode, FolderTree, ListTree } from "lucide-react";
+import { ArrowLeft, Eye, FileCode, FolderTree, ListPlus, ListTree } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -6,8 +6,10 @@ import { DocumentMarkdown } from "@/components/markdown";
 import { Badge, ColorDot, Kbd } from "@/components/ui";
 import { Breadcrumbs, CodeView, ExplorerTree, languageName, OutlinePanel, outlineTargets, StatusBar } from "@/components/workspace";
 import { CopyPathButton, EditorTabs, RegisterFile, WrapToggle } from "@/components/workspace-client";
+import { todoToTask } from "@/app/(app)/projects/actions";
 import { requireUser } from "@/lib/auth";
 import { relativeTime } from "@/lib/format";
+import { loadRoster } from "@/lib/projects";
 import { highlightLines } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 import { uuid } from "@/lib/validation";
@@ -54,12 +56,27 @@ export default async function DocumentPage({ params, searchParams }: PageProps<"
   const query = await searchParams;
   if (!uuid.safeParse(id).success || !uuid.safeParse(docId).success) notFound();
   const { user, supabase } = await requireUser();
-  const [{ data: doc }, { data: project }, { data: files }] = await Promise.all([
-    supabase.from("project_documents").select("*").eq("id", docId).eq("project_id", id).maybeSingle(),
-    supabase.from("projects").select("id, name, color, user_id").eq("id", id).maybeSingle(),
-    supabase.from("project_documents").select("id, path, kind, language").eq("project_id", id).order("path").limit(1000),
+  const [{ data: doc }, { data: project }, { data: chunks }, roster] = await Promise.all([
+    supabase.from("documents").select("*").eq("id", docId).eq("project_id", id).maybeSingle(),
+    supabase.from("projects").select("id, name, color").eq("id", id).maybeSingle(),
+    // Chunks are contiguous slices of the extracted text, so the file is their concatenation.
+    supabase.from("document_chunks").select("content").eq("document_id", docId).order("idx").limit(200),
+    loadRoster(supabase, id),
   ]);
   if (!doc || !project) notFound();
+  // The explorer shows the folder this file came from (each member syncs their own copy).
+  const { data: files } = await supabase
+    .from("documents")
+    .select("id, path, kind, language")
+    .eq("project_id", id)
+    .eq("device_id", doc.device_id)
+    .eq("root_key", doc.root_key)
+    .order("path")
+    .limit(1000);
+  const content = (chunks ?? []).map((c) => c.content).join("");
+  const role = roster.find((m) => m.user_id === user.id)?.role ?? null;
+  const canPlan = role === "owner" || role === "editor";
+  const syncedBy = doc.owner_id === user.id ? null : (roster.find((m) => m.user_id === doc.owner_id)?.display_name ?? "a former member");
 
   const outline = asList<OutlineSymbol>(doc.outline);
   const todos = asList<CodeTodo>(doc.todos);
@@ -67,7 +84,7 @@ export default async function DocumentPage({ params, searchParams }: PageProps<"
   // Markdown opens rendered; ?view=source shows it with line numbers like any other text file.
   const showSource = !isMarkdown || query.view === "source";
   const lineView = doc.kind === "code" || doc.kind === "text" || (isMarkdown && showSource);
-  const lines = lineView ? highlightLines(doc.content, doc.kind === "code" ? doc.language : isMarkdown ? "markdown" : null) : [];
+  const lines = lineView ? highlightLines(content, doc.kind === "code" ? doc.language : isMarkdown ? "markdown" : null) : [];
   const mode = lineView ? "lines" : "headings";
   const targets = outlineTargets(outline, mode);
   const name = doc.path.split("/").at(-1) ?? doc.path;
@@ -81,6 +98,18 @@ export default async function DocumentPage({ params, searchParams }: PageProps<"
     lineCount: lineView ? lines.length : 0,
     symbols: outline.map((s, i) => ({ name: s.name, kind: s.kind, line: s.line, target: targets[i]! })),
   };
+
+  const todoAction = canPlan
+    ? (todo: CodeTodo) => (
+        <form action={todoToTask}>
+          <input type="hidden" name="document_id" value={doc.id} />
+          <input type="hidden" name="line" value={todo.line} />
+          <button type="submit" className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-accent" aria-label={`Make "${todo.text}" a project task`} title="Make it a project task">
+            <ListPlus className="size-3.5" />
+          </button>
+        </form>
+      )
+    : undefined;
 
   return (
     <>
@@ -141,14 +170,14 @@ export default async function DocumentPage({ params, searchParams }: PageProps<"
           {doc.error ? <p className="mx-3 mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{doc.error}</p> : null}
 
           <div className={cn("min-h-[50vh] flex-1", !lineView && "px-5 py-4 sm:px-8 sm:py-6")}>
-            {!doc.content ? (
+            {!content ? (
               <p className="px-4 py-6 text-sm text-muted">No text could be extracted from this file.</p>
             ) : lineView ? (
               <CodeView lines={lines} />
             ) : isMarkdown ? (
-              <DocumentMarkdown className="text-sm">{doc.content}</DocumentMarkdown>
+              <DocumentMarkdown className="text-sm">{content}</DocumentMarkdown>
             ) : (
-              <PlainSections content={doc.content} />
+              <PlainSections content={content} />
             )}
           </div>
 
@@ -157,7 +186,7 @@ export default async function DocumentPage({ params, searchParams }: PageProps<"
               <ListTree className="size-4" /> Outline ({outline.length}){todos.length ? `, ${todos.length} to do` : ""}
             </summary>
             <div className="px-3 pb-3">
-              <OutlinePanel outline={outline} todos={todos} mode={mode} />
+              <OutlinePanel outline={outline} todos={todos} mode={mode} todoAction={todoAction} />
             </div>
           </details>
 
@@ -168,14 +197,14 @@ export default async function DocumentPage({ params, searchParams }: PageProps<"
               formatSize(doc.size_bytes),
               doc.modified_at ? `edited ${relativeTime(doc.modified_at)}` : null,
               `indexed ${relativeTime(doc.indexed_at)}`,
-              project.user_id !== user.id ? "shared, read-only" : "read-only",
+              syncedBy ? `synced by ${syncedBy}, read-only` : doc.visibility === "private" ? "only you see this file" : "read-only",
             ]}
           />
         </section>
 
         <aside className="hidden border-l border-border xl:block" aria-label="Outline">
           <div className="sticky top-0 max-h-dvh overflow-y-auto px-3 py-3">
-            <OutlinePanel outline={outline} todos={todos} mode={mode} />
+            <OutlinePanel outline={outline} todos={todos} mode={mode} todoAction={todoAction} />
           </div>
         </aside>
       </div>

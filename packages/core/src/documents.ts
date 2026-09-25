@@ -1,5 +1,5 @@
 import { parseChecklist, type ChecklistResult, type ChecklistStatus } from "./checklist";
-import { chunkCode, codeLanguageOf, extractTodos, outlineOf, type CodeTodo, type OutlineSymbol } from "./code";
+import { codeLanguageOf, extractTodos, identifierWords, outlineOf, symbolPathAt, type CodeTodo, type OutlineSymbol } from "./code";
 import { findReferenceDate, parseDateCell, parseDeadlineTables } from "./deadline-table";
 import { normalizeForKey, stableHash } from "./hash";
 import { isFenceLine, isTableSeparator, parseHeading, stripInlineMarkdown } from "./markdown";
@@ -47,84 +47,108 @@ export function isSafeRelativePath(path: string): boolean {
 
 export interface DocumentChunk {
   ord: number;
-  /** "Section › Subsection" of the chunk's nearest headings, or null before the first heading. */
+  /** The heading (notes) or symbol (code) the chunk starts in, "Section › Subsection", or null. */
   heading: string | null;
   content: string;
   /** 1-based line where the chunk starts. */
   line: number;
+  /** Split identifiers of source chunks ("parse checklist"), searchable but not shown. */
+  terms?: string;
 }
 
+/** Most chunks one document may have (the protocol's limit). */
+export const MAX_CHUNKS = 150;
+const MAX_CHUNK_CHARS = 4000;
+
 /**
- * Splits text into search chunks at headings, then at blank lines so no chunk exceeds `maxChars`.
- * Inline Markdown is flattened so snippets read as plain text.
+ * Cuts text into contiguous slices: concatenated in order they give the text back, so line numbers stay
+ * exact. Cuts fall at headings (notes) or blank lines once a slice is big enough, and inside a line only
+ * when a single line is longer than the limit.
  */
-export function chunkDocument(text: string, maxChars = 1500): DocumentChunk[] {
-  const lines = text.normalize("NFC").split(/\r?\n/);
-  const headings: string[] = [];
-  const chunks: DocumentChunk[] = [];
-  let buffer: string[] = [];
-  let bufferLine = 1;
-  let size = 0;
+export function splitText(text: string, options: { headings?: boolean; target?: number; max?: number } = {}): string[] {
+  const max = options.max ?? MAX_CHUNK_CHARS;
+  const target = options.target ?? 1800;
+  const out: string[] = [];
+  let current = "";
   let inFence = false;
-
-  const headingLabel = () => {
-    const path = headings.filter(Boolean);
-    return path.length ? path.slice(-2).join(" › ").slice(0, 300) : null;
+  const push = () => {
+    if (current) out.push(current);
+    current = "";
   };
-  let currentHeading: string | null = null;
+  for (let line of text.split(/(?<=\n)/)) {
+    const fence = isFenceLine(line);
+    const heading = Boolean(options.headings) && !inFence && !fence && /^#{1,6}\s/.test(line);
+    if (fence) inFence = !inFence;
+    if (heading && current.length >= 400) push();
+    if (current.length + line.length > max) push();
+    while (line.length > max) {
+      // Never split a surrogate pair.
+      const cut = /[\uD800-\uDBFF]/.test(line[max - 1]!) ? max - 1 : max;
+      out.push(line.slice(0, cut));
+      line = line.slice(cut);
+    }
+    current += line;
+    if (!line.trim() && current.length >= target) push();
+  }
+  push();
+  // Pack neighbours together if a file of many small sections produced too many slices.
+  for (let limit = max; out.length > MAX_CHUNKS; ) {
+    const packed: string[] = [];
+    for (const piece of out) {
+      if (packed.length && packed.at(-1)!.length + piece.length <= limit) packed[packed.length - 1] += piece;
+      else packed.push(piece);
+    }
+    if (packed.length === out.length) break;
+    out.splice(0, out.length, ...packed);
+  }
+  return out;
+}
 
-  const flush = () => {
-    const content = buffer.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-    if (content && chunks.length < MAX_CHUNKS_PER_DOCUMENT) {
-      chunks.push({ ord: chunks.length, heading: currentHeading, content, line: bufferLine });
-    }
-    buffer = [];
-    size = 0;
-  };
-
-  lines.forEach((raw, index) => {
-    if (isFenceLine(raw)) {
-      inFence = !inFence;
-      return;
-    }
-    const heading = inFence ? null : parseHeading(raw);
-    if (heading) {
-      flush();
-      headings.length = heading.level - 1;
-      headings[heading.level - 1] = heading.text;
-      currentHeading = headingLabel();
-      bufferLine = index + 2;
-      return;
-    }
-    if (isTableSeparator(raw)) return;
-    // List bullets are noise in snippets; checkbox markers ("[x]") stay because they carry status.
-    const line = inFence ? raw.trimEnd() : stripInlineMarkdown(raw.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, ""), 4000);
-    if (!line) {
-      // Paragraph boundary: a good place to split an oversized chunk.
-      if (size >= maxChars * 0.6) flush();
-      else if (buffer.length) buffer.push("");
-      if (!buffer.length) bufferLine = index + 2;
-      return;
-    }
-    if (!buffer.length) bufferLine = index + 1;
-    // Hard split for very long paragraphs (or text without blank lines, e.g. PDF output).
-    let rest = line;
-    while (size + rest.length > maxChars) {
-      const room = Math.max(maxChars - size, 200);
-      const cut = rest.lastIndexOf(" ", room);
-      const at = cut > room / 2 ? cut : room;
-      buffer.push(rest.slice(0, at));
-      flush();
-      bufferLine = index + 1;
-      rest = rest.slice(at).trimStart();
-    }
-    if (rest) {
-      buffer.push(rest);
-      size += rest.length + 1;
-    }
+/** Line, heading and search terms of each slice, from the slices themselves and the file's outline. */
+export function describeChunks(contents: string[], outline: OutlineSymbol[], kind: DocumentKind): DocumentChunk[] {
+  let line = 1;
+  return contents.map((content, ord) => {
+    const start = line;
+    line += (content.match(/\n/g) ?? []).length;
+    const firstText = start + Math.max(content.split("\n").findIndex((l) => l.trim()), 0);
+    const chunk: DocumentChunk = { ord, heading: symbolPathAt(outline, firstText), content, line: start };
+    if (kind === "code") chunk.terms = identifierWords(content);
+    return chunk;
   });
-  flush();
-  return chunks;
+}
+
+/** A short plain-text preview for lists (first lines, Markdown markers removed). */
+export function excerptOf(text: string, max = 300): string {
+  const plain = text
+    .split(/\r?\n/)
+    .map((l) => stripInlineMarkdown(l.replace(/^\s*(?:#{1,6}\s+|[-*+]\s+(?:\[[^\]]*\]\s*)?|\d+[.)]\s+|>\s*)/, ""), 400))
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return plain.length > max ? `${plain.slice(0, max - 1)}…` : plain;
+}
+
+/** A project slug from a name: "Đồ án NT219" → "do-an-nt219" (2–40 of a-z, 0-9 and dashes). */
+export function projectSlug(name: string): string {
+  const slug = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/gi, "d")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/, "");
+  return slug.length >= 2 ? slug : `project-${slug || "x"}`.slice(0, 40);
+}
+
+/** Lower-case extension for the documents table; extension-less build files get a short stand-in. */
+export function extensionOf(path: string): string {
+  const name = (path.split("/").at(-1) ?? path).toLowerCase();
+  const ext = /\.([a-z0-9]{1,8})$/.exec(name)?.[1];
+  if (ext) return ext;
+  return ({ dockerfile: "docker", makefile: "make", gemfile: "rb", rakefile: "rb" } as Record<string, string>)[name] ?? "txt";
 }
 
 export interface DocumentDeadline {
@@ -169,7 +193,8 @@ export interface DocumentAnalysis {
   title: string;
   checklist: ChecklistResult;
   deadlines: DocumentDeadline[];
-  chunks: (DocumentChunk & { terms?: string })[];
+  chunks: DocumentChunk[];
+  excerpt: string;
   language: string | null;
   lineCount: number;
   /** Headings (notes) or declarations (code), for the outline panel and "go to symbol". */
@@ -201,7 +226,8 @@ export function analyzeDocument(input: { path: string; kind: DocumentKind; text:
       title: input.path.split("/").at(-1)!.slice(0, 300),
       checklist: parseChecklist(""),
       deadlines: [],
-      chunks: chunkCode(text, outline),
+      chunks: describeChunks(splitText(text), outline, "code"),
+      excerpt: excerptOf(text),
       language,
       lineCount,
       outline,
@@ -211,9 +237,11 @@ export function analyzeDocument(input: { path: string; kind: DocumentKind; text:
       redactions: count,
     };
   }
-  const chunks = chunkDocument(text);
-  const outline = input.kind === "markdown" ? outlineOf(text, "markdown") : [];
-  const base = { chunks, language, lineCount, outline, todos: [] as CodeTodo[] };
+  // Notes and extracted PDF/slide text ("## Page 3") get a heading outline; chunks break at those headings.
+  const headed = input.kind === "markdown" || input.kind === "pdf" || input.kind === "pptx";
+  const outline = headed ? outlineOf(text, "markdown") : [];
+  const chunks = describeChunks(splitText(text, { headings: headed }), outline, input.kind);
+  const base = { chunks, excerpt: excerptOf(text), language, lineCount, outline, todos: [] as CodeTodo[] };
   if (input.kind !== "markdown" && input.kind !== "text") {
     return { title: fileTitle(input.path), checklist: parseChecklist(""), deadlines: [], ...base, referenceDate: null, text, redactions: count };
   }

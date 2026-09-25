@@ -18,6 +18,13 @@ const groupSchema = z.object({
     .trim()
     .max(1000)
     .transform((v) => v || null),
+  course_code: z
+    .string()
+    .trim()
+    .max(40)
+    .regex(/^[\p{L}\p{N}._\- ]*$/u, "Letters, digits, dots and dashes only")
+    .transform((v) => v.toUpperCase() || null)
+    .catch(null),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Pick a colour"),
 });
 
@@ -32,7 +39,12 @@ export async function createGroup(_prev: ActionState, formData: FormData): Promi
   if (!(await allow(`group:${user.id}`, 10, 3600))) return { message: "Too many new groups in an hour." };
   const parsed = groupSchema.safeParse(formObject(formData));
   if (!parsed.success) return { errors: fieldErrors(parsed.error) };
-  const { data, error } = await supabase.rpc("create_group", { p_name: parsed.data.name, p_description: parsed.data.description ?? undefined, p_color: parsed.data.color });
+  const { data, error } = await supabase.rpc("create_group", {
+    p_name: parsed.data.name,
+    p_description: parsed.data.description ?? undefined,
+    p_color: parsed.data.color,
+    p_course_code: parsed.data.course_code ?? undefined,
+  });
   if (error || !data) return { message: error?.message.includes("20 groups") ? "You are already in 20 groups." : "Could not create the group." };
   redirect(`/groups/${data}`);
 }
@@ -127,27 +139,5 @@ export async function setShareBusy(formData: FormData): Promise<void> {
   const share = formData.get("share") === "true";
   await supabase.from("group_members").update({ share_busy: share }).eq("group_id", groupId.data).eq("user_id", user.id);
   await audit(user.id, share ? "group.share_busy_on" : "group.share_busy_off", "group", groupId.data);
-  refresh();
-}
-
-export async function shareProject(formData: FormData): Promise<void> {
-  const { user, supabase } = await requireUser();
-  if (!(await allow(`share:${user.id}`, 30, 600))) return;
-  const groupId = uuid.safeParse(formData.get("group_id"));
-  const projectId = uuid.safeParse(formData.get("project_id"));
-  if (!groupId.success || !projectId.success) return;
-  // The insert policy checks that the caller owns the project and belongs to the group.
-  const { error } = await supabase.from("project_shares").insert({ group_id: groupId.data, project_id: projectId.data });
-  if (!error) await audit(user.id, "project.share", "project", projectId.data, { group: groupId.data });
-  refresh();
-}
-
-export async function unshareProject(formData: FormData): Promise<void> {
-  const { user, supabase } = await requireUser();
-  const groupId = uuid.safeParse(formData.get("group_id"));
-  const projectId = uuid.safeParse(formData.get("project_id"));
-  if (!groupId.success || !projectId.success) return;
-  const { data } = await supabase.from("project_shares").delete().eq("group_id", groupId.data).eq("project_id", projectId.data).select("project_id");
-  if (data?.length) await audit(user.id, "project.unshare", "project", projectId.data, { group: groupId.data });
   refresh();
 }

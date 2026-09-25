@@ -1,3 +1,5 @@
+import { projectSlug } from "@hub/core";
+import { PROJECT_SLUG } from "@hub/core/protocol";
 import { statSync } from "node:fs";
 import { hostname, platform } from "node:os";
 import { basename, resolve } from "node:path";
@@ -19,8 +21,10 @@ const HELP = `gnouht hub agent ${AGENT_VERSION}
   login-9router                    Store the 9router dashboard password (Credential Manager)
   ai-setup [--model NAME]          Store a 9router API key and pick the model for AI jobs
   login-uit                        Get a Moodle token with your UIT account (password is not stored)
-  project add <folder> [--name NAME] [--code] [--include GLOBS] [--exclude GLOBS]
-                                   Watch a project folder (globs are comma-separated, e.g. "**/*.md,**/*.pdf");
+  project add <folder> [--name NAME] [--slug SLUG | --project ID] [--code] [--include GLOBS] [--exclude GLOBS]
+                                   Watch a project folder (globs are comma-separated, e.g. "**/*.md,**/*.pdf").
+                                   It syncs into your hub project with that slug (created if missing), or
+                                   into a team project you can edit (--project, ID from the project page);
                                    --code also indexes source files for the hub's code view and search
   project code <folder|number> on|off
                                    Start or stop indexing source files of a watched folder
@@ -145,9 +149,18 @@ async function main(argv: string[]): Promise<number> {
         if (config.projects.some((p) => samePath(p.root, root))) throw new Error("That folder is already watched");
         const code = args.includes("--code");
         const include = globs(flag(args, "--include"));
+        const name = (flag(args, "--name") ?? basename(root)).trim().slice(0, 100) || "Project";
+        const slug = flag(args, "--slug") ?? projectSlug(name);
+        if (!PROJECT_SLUG.test(slug)) throw new Error("--slug takes 2-40 lower-case letters, digits and dashes");
+        const projectId = flag(args, "--project") ?? null;
+        if (projectId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)) {
+          throw new Error("--project takes the project id shown on its page in the hub");
+        }
         const folder = {
           root,
-          name: (flag(args, "--name") ?? basename(root)).slice(0, 120),
+          name,
+          slug,
+          projectId,
           include: include ? (code ? [...new Set([...include, ...CODE_PRESET.slice(DEFAULT_INCLUDE.length)])] : include) : code ? CODE_PRESET : DEFAULT_INCLUDE,
           exclude: globs(flag(args, "--exclude")) ?? [],
         };
@@ -155,7 +168,7 @@ async function main(argv: string[]): Promise<number> {
         const kinds = new Map<string, number>();
         for (const file of listing.files) kinds.set(file.kind, (kinds.get(file.kind) ?? 0) + 1);
         saveConfig({ ...config, projects: [...config.projects, folder] });
-        console.log(`Watching "${folder.name}" (${root})`);
+        console.log(`Watching "${folder.name}" (${root}) → ${projectId ? `team project ${projectId}` : `your project "${slug}"`}`);
         console.log(`  ${listing.files.length} file(s) to index: ${[...kinds].map(([k, n]) => `${n} ${k}`).join(", ") || "none yet"}`);
         if (listing.skipped) console.log(`  ${listing.skipped} file(s) skipped (too large or unusable names)`);
         if (listing.truncated) console.log("  File limit reached — narrow it with --include/--exclude.");
@@ -166,7 +179,9 @@ async function main(argv: string[]): Promise<number> {
         if (!config.projects.length) console.log("No watched folders. Add one with `hub-agent project add <folder>`.");
         for (const [index, p] of config.projects.entries()) {
           const listing = await listFolder(p);
-          console.log(`${index + 1}. ${p.name} — ${p.root} (${listing.files.length} files; include ${p.include.join(",")}${p.exclude.length ? `; exclude ${p.exclude.join(",")}` : ""})`);
+          console.log(
+            `${index + 1}. ${p.name} — ${p.root} → ${p.projectId ? `team project ${p.projectId}` : p.slug} (${listing.files.length} files; include ${p.include.join(",")}${p.exclude.length ? `; exclude ${p.exclude.join(",")}` : ""})`,
+          );
         }
         return 0;
       }

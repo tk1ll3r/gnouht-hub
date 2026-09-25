@@ -6,7 +6,7 @@ import { Badge, Card, CardBody, CardHeader, ColorDot, EmptyState, PageHeader, Pr
 import { requireUser } from "@/lib/auth";
 import { loadWorkspace } from "@/lib/data";
 import { formatDue, relativeTime } from "@/lib/format";
-import { isActiveProject, loadProjectSummaries, loadShareLabels, type ProjectSummary } from "@/lib/projects";
+import { isActiveProject, loadGroupLabels, loadProjectSummaries, ROLE_LABELS, type ProjectSummary } from "@/lib/projects";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Projects" };
@@ -27,7 +27,7 @@ function ProjectCard({ summary, tz, now, sharedVia }: { summary: ProjectSummary;
               </p>
               {sharedVia ? (
                 <p className="mt-0.5 flex items-center gap-1 truncate text-[12px] text-muted">
-                  <Users className="size-3 shrink-0" /> via {sharedVia.join(", ")}
+                  <Users className="size-3 shrink-0" /> {sharedVia.length ? `via ${sharedVia.join(", ")}` : "added directly"}
                 </p>
               ) : project.folder_label ? (
                 <p className="mt-0.5 flex items-center gap-1 truncate text-[12px] text-muted">
@@ -36,6 +36,8 @@ function ProjectCard({ summary, tz, now, sharedVia }: { summary: ProjectSummary;
               ) : null}
             </div>
             <div className="flex shrink-0 flex-wrap justify-end gap-1">
+              {summary.members > 1 ? <Badge>{ROLE_LABELS[summary.role]}</Badge> : null}
+              {summary.myOpenTasks ? <Badge tone="accent">{summary.myOpenTasks} for you</Badge> : null}
               {project.status !== "active" ? <Badge>{project.status}</Badge> : null}
               {project.items_attention ? (
                 <Badge tone="warn">
@@ -55,9 +57,9 @@ function ProjectCard({ summary, tz, now, sharedVia }: { summary: ProjectSummary;
             <ProgressBar value={progress.ratio} tone={progress.ratio >= 1 ? "ok" : "accent"} label={`${project.name} progress`} />
           </div>
           <p className="mt-auto text-[12px] text-muted">
-            {nextDeadline?.due_at ? (
+            {nextDeadline ? (
               <>
-                Next: <span className="text-text">{nextDeadline.title}</span>, {formatDue(nextDeadline.due_at, tz, now)}
+                Next: <span className="text-text">{nextDeadline.title}</span>, {formatDue(nextDeadline.due, tz, now)}
               </>
             ) : project.due_on ? (
               `Due ${project.due_on}`
@@ -80,11 +82,11 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
   const [ws, summaries, shared] = await Promise.all([
     loadWorkspace(supabase, user.id),
     loadProjectSummaries(supabase, user.id, now),
-    loadProjectSummaries(supabase, user.id, now, "shared"),
+    loadProjectSummaries(supabase, user.id, now, "team"),
   ]);
   const visible = summaries.filter((s) => (view === "active") === isActiveProject(s.project.status));
   const sharedVisible = shared.filter((s) => (view === "active") === isActiveProject(s.project.status));
-  const shareLabels = await loadShareLabels(supabase, sharedVisible.map((s) => s.project.id));
+  const shareLabels = await loadGroupLabels(supabase, sharedVisible.map((s) => s.project.id));
   const courses = ws.courses.map((c) => ({ id: c.id, code: c.code, name: c.name }));
 
   return (
@@ -122,7 +124,7 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
           )}
           {sharedVisible.length ? (
             <section>
-              <h2 className="mb-2 text-sm font-semibold">Shared with me</h2>
+              <h2 className="mb-2 text-sm font-semibold">Team projects led by others</h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 {sharedVisible.map((summary) => (
                   <ProjectCard key={summary.project.id} summary={summary} tz={ws.options.tz} now={now} sharedVia={shareLabels.get(summary.project.id) ?? []} />
@@ -138,7 +140,7 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
             <CardBody className="flex flex-col gap-2 text-[13px] text-muted">
               <p>On your PC:</p>
               <pre className="overflow-x-auto rounded-lg bg-surface-2 p-2 font-mono text-[12px] text-text">
-                hub-agent project add &quot;D:\Research\IDS&quot;{"\n"}hub-agent sync-docs
+                hub-agent project add &quot;D:\Research\IDS&quot; --slug ids{"\n"}hub-agent sync-docs
               </pre>
               <p>
                 Mark items <code className="font-mono">[x]</code> done, <code className="font-mono">[~]</code> in progress, <code className="font-mono">[!]</code> needs

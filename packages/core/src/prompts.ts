@@ -83,6 +83,8 @@ export interface ProjectFacts {
   openSample: string[];
   recentlyDone: string[];
   milestones: string[];
+  /** Open team tasks: "title: assignee, status, due". */
+  teamTasks?: string[];
 }
 
 export function projectSummaryPrompt(facts: ProjectFacts, language: AiLanguage, nonce: string): ChatMessage[] {
@@ -96,6 +98,7 @@ export function projectSummaryPrompt(facts: ProjectFacts, language: AiLanguage, 
     `Some open items:\n${list(facts.openSample, 25)}`,
     `Done in the last two weeks:\n${list(facts.recentlyDone, 15)}`,
     `Milestones and deadlines:\n${list(facts.milestones, 20)}`,
+    facts.teamTasks ? `Open team tasks (who has them):\n${list(facts.teamTasks, 30)}` : null,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -104,7 +107,7 @@ export function projectSummaryPrompt(facts: ProjectFacts, language: AiLanguage, 
       role: "system",
       content: system(
         language,
-        "Task: summarise where this project stands. Use exactly three sections with bold labels: **Status** (two sentences), **Risks** (up to three bullets, most serious first, tied to dates when there are any) and **Next steps** (up to three concrete bullets someone could start today). At most 220 words.",
+        "Task: summarise where this project stands. When team tasks are listed, name who is behind or unassigned. Use exactly three sections with bold labels: **Status** (two sentences), **Risks** (up to three bullets, most serious first, tied to dates when there are any) and **Next steps** (up to three concrete bullets someone could start today). At most 220 words.",
       ),
     },
     { role: "user", content: `Now: ${facts.nowText}.\n\n${fence("kind=project", body, nonce)}\n\nSummarise the project.` },

@@ -8,7 +8,7 @@ import { buttonClass, Field, Input, Select, Textarea } from "./ui";
 
 const COLORS = ["#0f9d8a", "#2458e6", "#7c3aed", "#d0342c", "#b86e00", "#db2777", "#0891b2", "#4d7c0f", "#475569"];
 
-export function GroupForm({ group }: { group?: { id: string; name: string; description: string | null; color: string } }) {
+export function GroupForm({ group }: { group?: { id: string; name: string; description: string | null; color: string; course_code: string | null } }) {
   const [color, setColor] = useState(group?.color ?? COLORS[0]!);
   const key = group?.id ?? "new";
   return (
@@ -19,6 +19,9 @@ export function GroupForm({ group }: { group?: { id: string; name: string; descr
           <input type="hidden" name="color" value={color} />
           <Field label="Name" htmlFor={`g-name-${key}`} error={state.errors?.name}>
             <Input id={`g-name-${key}`} name="name" defaultValue={group?.name} required maxLength={80} placeholder="Nhóm đồ án NT219" />
+          </Field>
+          <Field label="Course code" htmlFor={`g-course-${key}`} error={state.errors?.course_code} hint="Optional, e.g. NT219.Q11: shown on the group and its projects.">
+            <Input id={`g-course-${key}`} name="course_code" defaultValue={group?.course_code ?? ""} maxLength={40} placeholder="NT219.Q11" className="uppercase" />
           </Field>
           <Field label="Description" htmlFor={`g-desc-${key}`} error={state.errors?.description}>
             <Textarea id={`g-desc-${key}`} name="description" defaultValue={group?.description ?? ""} maxLength={1000} className="min-h-16" />

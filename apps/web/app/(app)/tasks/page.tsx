@@ -8,6 +8,7 @@ import { Badge, Card, CardBody, CardHeader, ColorDot, EmptyState, Meta, PageHead
 import { requireUser } from "@/lib/auth";
 import { busyIntervals, classesBetween, loadEvents, loadProjectLabels, loadTasks, loadWorkspace, toRankable } from "@/lib/data";
 import { formatDue } from "@/lib/format";
+import { canPlanTask } from "@/lib/projects";
 import { cn } from "@/lib/utils";
 import { deleteTask } from "./actions";
 
@@ -28,7 +29,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
     loadProjectLabels(supabase, user.id),
   ]);
 
-  const tasks = toRankable(rows, ws.courses, projects);
+  const tasks = toRankable(rows, ws.courses, projects, user.id);
   const busy = busyIntervals(classesBetween(ws, now, horizon), events);
   const { ranked } = rankTasks(tasks, { now, busy, ...ws.options });
   const rankById = new Map(ranked.map((r) => [r.task.id, r]));
@@ -46,7 +47,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
 
   return (
     <>
-      <PageHeader title="Tasks" description="Manual tasks, Moodle deadlines and project checklists in one list." />
+      <PageHeader title="Tasks" description="Your own tasks, Moodle deadlines and the project tasks assigned to you, in one list." />
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <Card>
           <div className="flex gap-1 border-b border-border px-3 py-2 text-[13px]">
@@ -87,6 +88,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
                           </Link>
                         ) : null}
                         <span className={cn("font-medium", finished && "text-muted line-through")}>{t.title}</span>
+                        {t.assigned ? <Badge tone="accent">assigned to you</Badge> : null}
                         {t.row.source === "moodle" ? <Badge>Moodle</Badge> : null}
                         {t.row.source === "markdown" ? (
                           <Badge>
@@ -113,8 +115,12 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
                       />
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
-                      <TaskControls id={t.id} status={t.status} progress={t.progress} estimate={t.estimateHours} />
-                      {t.row.source === "manual" ? (
+                      {t.editable ? (
+                        <TaskControls id={t.id} status={t.status} progress={t.progress} estimate={t.estimateHours} />
+                      ) : (
+                        <span className="text-[12px] text-muted">Locked by the lead</span>
+                      )}
+                      {t.row.source === "manual" && (!t.project || canPlanTask(t.project.role, t.row)) ? (
                         <InlineAction action={deleteTask} fields={{ id: t.id }} confirm="Delete this task?" title="Delete task">
                           <Trash2 className="size-3.5" aria-label="Delete" />
                         </InlineAction>
@@ -132,7 +138,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
           <CardBody>
             <TaskForm
               courses={ws.courses.map((c) => ({ id: c.id, code: c.code, name: c.name }))}
-              projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+              projects={projects.filter((p) => p.role !== "viewer").map((p) => ({ id: p.id, name: p.name }))}
               autoFocus={params.new === "1"}
             />
           </CardBody>

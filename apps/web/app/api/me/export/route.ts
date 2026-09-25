@@ -11,10 +11,8 @@ const OWNED = [
   ["events", "user_id"],
   ["tasks", "user_id"],
   ["briefs", "user_id"],
-  ["projects", "user_id"],
-  ["project_documents", "user_id"],
-  ["checklist_items", "user_id"],
-  ["project_progress_daily", "user_id"],
+  ["projects", "owner_id"],
+  ["documents", "owner_id"],
   ["manual_quotas", "user_id"],
   ["quota_snapshots", "user_id"],
   ["usage_daily", "user_id"],
@@ -36,12 +34,21 @@ export async function GET() {
     const { data: rows } = await query.eq(column, user.id).limit(10000);
     data[table] = rows ?? [];
   }
-  const [{ data: sources }, { data: devices }, { data: memberships }] = await Promise.all([
+  const [{ data: sources }, { data: devices }, { data: memberships }, { data: projectMemberships }, { data: assigned }] = await Promise.all([
     supabase.from("calendar_sources").select("id, kind, flavor, name, color, enabled, account_label, calendars, status, last_synced_at, created_at").eq("user_id", user.id),
     supabase.from("devices").select("id, name, platform, agent_version, last_seen_at, created_at").eq("user_id", user.id),
     supabase.from("group_members").select("group_id, role, share_busy, joined_at, groups(name)").eq("user_id", user.id),
+    supabase.from("project_members").select("project_id, role, via_group, shares_documents, joined_at, projects(name)").eq("user_id", user.id),
+    // Project tasks other members wrote and gave to the caller (their own tasks are in "tasks").
+    supabase.from("tasks").select("*").eq("assignee_id", user.id).neq("user_id", user.id).limit(10000),
   ]);
-  Object.assign(data, { calendar_sources: sources ?? [], devices: devices ?? [], group_memberships: memberships ?? [] });
+  Object.assign(data, {
+    calendar_sources: sources ?? [],
+    devices: devices ?? [],
+    group_memberships: memberships ?? [],
+    project_memberships: projectMemberships ?? [],
+    tasks_assigned_to_me: assigned ?? [],
+  });
   await audit(user.id, "account.export", "user", user.id);
   return new Response(JSON.stringify(data, null, 2), {
     headers: {

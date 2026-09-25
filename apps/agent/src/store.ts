@@ -3,6 +3,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { projectSlug } from "@hub/core";
+import { PROJECT_SLUG } from "@hub/core/protocol";
 import { DEFAULT_INCLUDE } from "./documents";
 
 export const SERVICE = "gnouht-hub-agent";
@@ -42,12 +44,19 @@ export const configSchema = z.object({
   /** Watched project folders (`hub-agent project add`). */
   projects: z
     .array(
-      z.object({
-        root: z.string().min(1),
-        name: z.string().trim().min(1).max(120),
-        include: z.array(z.string().min(1).max(1000)).max(20).default(DEFAULT_INCLUDE),
-        exclude: z.array(z.string().min(1).max(1000)).max(50).default([]),
-      }),
+      z
+        .object({
+          root: z.string().min(1),
+          name: z.string().trim().min(1).max(100),
+          /** The hub project this folder syncs into, by slug (created on first sync if the owner has none). */
+          slug: z.string().regex(PROJECT_SLUG).optional(),
+          /** Or an explicit team project the device owner can edit (`project add --project <id>`). */
+          projectId: z.uuid().nullable().default(null),
+          include: z.array(z.string().min(1).max(1000)).max(20).default(DEFAULT_INCLUDE),
+          exclude: z.array(z.string().min(1).max(1000)).max(50).default([]),
+        })
+        // Folders saved before slugs existed get one from their name.
+        .transform((folder) => ({ ...folder, slug: folder.slug ?? projectSlug(folder.name) })),
     )
     .max(30)
     .default([]),

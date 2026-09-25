@@ -12,17 +12,18 @@ export interface GroupSummary {
   name: string;
   description: string | null;
   color: string;
+  course_code: string | null;
   role: string;
   members: number;
-  sharedProjects: number;
+  projects: number;
 }
 
 /** Groups the user belongs to (RLS limits the rows to their memberships and live invites). */
 export async function loadGroups(client: Client, userId: string): Promise<GroupSummary[]> {
-  const [{ data: groups }, { data: members }, { data: shares }] = await Promise.all([
-    client.from("groups").select("id, name, description, color").order("name"),
+  const [{ data: groups }, { data: members }, { data: links }] = await Promise.all([
+    client.from("groups").select("id, name, description, color, course_code").order("name"),
     client.from("group_members").select("group_id, user_id, role"),
-    client.from("project_shares").select("group_id, project_id"),
+    client.from("project_groups").select("group_id, project_id"),
   ]);
   const mine = new Map((members ?? []).filter((m) => m.user_id === userId).map((m) => [m.group_id, m.role]));
   return (groups ?? [])
@@ -31,7 +32,7 @@ export async function loadGroups(client: Client, userId: string): Promise<GroupS
       ...g,
       role: mine.get(g.id)!,
       members: (members ?? []).filter((m) => m.group_id === g.id).length,
-      sharedProjects: (shares ?? []).filter((s) => s.group_id === g.id).length,
+      projects: (links ?? []).filter((l) => l.group_id === g.id).length,
     }));
 }
 

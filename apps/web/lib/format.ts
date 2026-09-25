@@ -26,6 +26,19 @@ export function formatDateRange(start: string, end: string): string {
   return `${fmt(start)} – ${fmt(end)} ${end.slice(0, 4)}`;
 }
 
+/** A calendar date ("2026-10-02") relative to today's: "today", "tomorrow", or "Fri 2 Oct" (with "in N days" within a week). */
+export function formatDayKey(key: string, todayKey: string): string {
+  const utc = (k: string) => {
+    const [y, m, d] = k.split("-").map(Number);
+    return Date.UTC(y!, m! - 1, d!);
+  };
+  const days = Math.round((utc(key) - utc(todayKey)) / 86_400_000);
+  if (days === 0) return "today";
+  if (days === 1) return "tomorrow";
+  const label = new Date(utc(key)).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+  return days > 1 && days < 7 ? `${label}, in ${days} days` : label;
+}
+
 export function relativeTime(date: Date | string, now: Date = new Date()): string {
   const d = typeof date === "string" ? new Date(date) : date;
   const diff = Math.round((d.getTime() - now.getTime()) / 60_000);

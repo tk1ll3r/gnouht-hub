@@ -6,6 +6,7 @@ import {
   formatZoned,
   MAX_EXCERPTS,
   projectSummaryPrompt,
+  zonedInstant,
   type AiLanguage,
   type ChatMessage,
 } from "@hub/core";
@@ -14,6 +15,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomBytes } from "node:crypto";
 import type { TodayData } from "./data";
 import { formatDue } from "./format";
+import { loadRoster } from "./projects";
 import type { AdminClient } from "./supabase/admin";
 
 type Client = SupabaseClient<Database>;
@@ -112,17 +114,30 @@ export async function enqueueBrief(admin: AdminClient, userId: string, today: To
 }
 
 /**
- * Project summary. Facts are read with the user's own client, so RLS decides what the prompt may contain
- * (their projects, or projects shared with their groups).
+ * Project summary. Facts are read with the user's own client, so RLS decides what the prompt may contain:
+ * the files the members share with the project (plus the caller's own), its tasks and milestones.
  */
 export async function enqueueProjectSummary(client: Client, admin: AdminClient, userId: string, projectId: string, language: AiLanguage, tz: string) {
   const now = new Date();
-  const [{ data: project }, { data: items }, { data: tasks }] = await Promise.all([
+  const [{ data: project }, { data: docs }, { data: tasks }, { data: milestones }, roster] = await Promise.all([
     client.from("projects").select("id, name, description, items_total, items_done, items_cut").eq("id", projectId).maybeSingle(),
-    client.from("checklist_items").select("text, status, section, status_changed_at, first_seen_at").eq("project_id", projectId).limit(3000),
-    client.from("tasks").select("title, status, due_at, source_ref").eq("project_id", projectId).order("due_at", { ascending: true, nullsFirst: false }).limit(200),
+    client.from("documents").select("id").eq("project_id", projectId).eq("visibility", "project").limit(1000),
+    client
+      .from("tasks")
+      .select("title, status, due_at, assignee_id")
+      .eq("project_id", projectId)
+      .not("status", "in", "(done,cut)")
+      .order("due_at", { ascending: true, nullsFirst: false })
+      .limit(200),
+    client.from("milestones").select("title, due_on, hard, done").eq("project_id", projectId).order("due_on").limit(100),
+    loadRoster(client, projectId),
   ]);
   if (!project) throw new AiQueueError("project not found", "other");
+  const docIds = (docs ?? []).map((d) => d.id);
+  const { data: items } = docIds.length
+    ? await client.from("checklist_items").select("text, status, section, status_changed_at, first_seen_at").in("document_id", docIds.slice(0, 500)).limit(3000)
+    : { data: [] };
+  const names = new Map(roster.map((m) => [m.user_id, m.display_name]));
   const label = (i: { text: string; section: string | null }) => (i.section ? `${i.text} (${i.section})` : i.text);
   const twoWeeks = now.getTime() - 14 * 86_400_000;
   const countable = project.items_total - project.items_cut;
@@ -138,9 +153,12 @@ export async function enqueueProjectSummary(client: Client, admin: AdminClient, 
       recentlyDone: (items ?? [])
         .filter((i) => i.status === "done" && new Date(i.status_changed_at).getTime() > twoWeeks && i.status_changed_at !== i.first_seen_at)
         .map(label),
-      milestones: (tasks ?? []).map((t) => {
-        const hard = (t.source_ref as { hard?: boolean } | null)?.hard ? ", hard deadline" : "";
-        return `${t.title}: ${t.due_at ? formatDue(t.due_at, tz, now) : "no date"}, ${t.status}${hard}`;
+      milestones: (milestones ?? [])
+        .filter((m) => !m.done)
+        .map((m) => `${m.title}: ${formatDue(zonedInstant(m.due_on, 23 * 60 + 59, tz).toISOString(), tz, now)}${m.hard ? ", hard deadline" : ""}`),
+      teamTasks: (tasks ?? []).map((t) => {
+        const who = t.assignee_id ? (names.get(t.assignee_id) ?? "a former member") : "unassigned";
+        return `${t.title}: ${who}, ${t.status}, ${t.due_at ? formatDue(t.due_at, tz, now) : "no date"}`;
       }),
     },
     language,
@@ -151,8 +169,8 @@ export async function enqueueProjectSummary(client: Client, admin: AdminClient, 
 
 export interface AskSource {
   n: number;
-  chunkId: number;
   documentId: string;
+  idx: number;
   projectId: string;
   title: string;
   path: string;
@@ -161,7 +179,7 @@ export interface AskSource {
 
 /** Retrieves the best passages the user can read and queues a cited answer. Returns null when nothing matches. */
 export async function enqueueAsk(client: Client, admin: AdminClient, userId: string, question: string, projectId: string | undefined, language: AiLanguage) {
-  const { data: hits } = await client.rpc("search_documents", { p_query: question, p_project: projectId, p_limit: 24, p_any: true });
+  const { data: hits } = await client.rpc("search_chunks", { p_query: question, p_project: projectId, p_limit: 24, p_any: true });
   // At most two passages per document so one long file cannot crowd out the others.
   const perDoc = new Map<string, number>();
   const chosen = (hits ?? []).filter((h) => {
@@ -172,12 +190,12 @@ export async function enqueueAsk(client: Client, admin: AdminClient, userId: str
   }).slice(0, MAX_EXCERPTS);
   if (!chosen.length) return null;
 
-  const { data: docs } = await client.from("project_documents").select("id, title, path").in("id", [...new Set(chosen.map((h) => h.document_id))]);
+  const { data: docs } = await client.from("documents").select("id, title, path").in("id", [...new Set(chosen.map((h) => h.document_id))]);
   const docById = new Map((docs ?? []).map((d) => [d.id, d]));
   const sources: AskSource[] = chosen.map((h, index) => ({
     n: index + 1,
-    chunkId: h.chunk_id,
     documentId: h.document_id,
+    idx: h.idx,
     projectId: h.project_id,
     title: docById.get(h.document_id)?.title ?? "Document",
     path: docById.get(h.document_id)?.path ?? "",

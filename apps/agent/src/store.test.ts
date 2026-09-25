@@ -22,7 +22,7 @@ describe("loadConfig", () => {
 
   it("round-trips a folder watched with the --code preset", () => {
     const config = loadConfig();
-    saveConfig({ ...config, deviceId: "0b8f4f7e-6d8c-4d8a-9d43-0c6a3c6f1b10", projects: [{ root: "/tmp/x", name: "X", include: CODE_PRESET, exclude: [] }] });
+    saveConfig({ ...config, deviceId: "0b8f4f7e-6d8c-4d8a-9d43-0c6a3c6f1b10", projects: [{ root: "/tmp/x", name: "X", slug: "x-project", projectId: null, include: CODE_PRESET, exclude: [] }] });
     expect(loadConfig().projects[0]!.include).toEqual(CODE_PRESET);
     expect(loadConfig().deviceId).toBe("0b8f4f7e-6d8c-4d8a-9d43-0c6a3c6f1b10");
   });

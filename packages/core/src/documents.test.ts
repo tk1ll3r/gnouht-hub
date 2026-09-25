@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { analyzeDocument, chunkDocument, documentKindOf, inlineDueDate, isSafeRelativePath } from "./documents";
+import { outlineOf } from "./code";
+import { analyzeDocument, describeChunks, documentKindOf, excerptOf, extensionOf, inlineDueDate, isSafeRelativePath, projectSlug, splitText } from "./documents";
 
 describe("isSafeRelativePath", () => {
   it.each(["notes.md", "Research/IDS/Tiến độ.md", "a/b/c.docx"])("accepts %j", (path) => {
@@ -23,22 +24,47 @@ describe("documentKindOf", () => {
   });
 });
 
-describe("chunkDocument", () => {
-  it("starts a chunk at every heading and records the heading path and line", () => {
-    const chunks = chunkDocument("intro line\n\n# Title\n\n## Part A\ntext **a**\n\n## Part B\n- [x] done item\n```\n# not a heading\n```\n");
-    expect(chunks.map((c) => [c.heading, c.content, c.line])).toEqual([
-      [null, "intro line", 1],
-      ["Title › Part A", "text a", 6],
-      ["Title › Part B", "[x] done item\n# not a heading", 9],
+describe("splitText and describeChunks", () => {
+  it("cuts contiguous slices at headings that give the text back, with exact start lines and heading paths", () => {
+    const body = "nội dung ".repeat(50).trim();
+    const text = `# Title\n${body}\n## Part A\n${body}\n## Part B\n- [x] done item\n\`\`\`\n# not a heading\n\`\`\`\n`;
+    const slices = splitText(text, { headings: true });
+    expect(slices.join("")).toBe(text);
+    const chunks = describeChunks(slices, outlineOf(text, "markdown"), "markdown");
+    expect(chunks.map((c) => [c.line, c.heading, c.content.split("\n")[0]])).toEqual([
+      [1, "Title", "# Title"],
+      [3, "Title › Part A", "## Part A"],
+      [5, "Title › Part B", "## Part B"],
     ]);
   });
 
-  it("splits long sections at paragraph breaks and very long paragraphs at spaces", () => {
-    const paragraph = "word ".repeat(200).trim(); // 999 chars
-    const chunks = chunkDocument(`# H\n${paragraph}\n\n${paragraph}\n\n${"x".repeat(3500)}`, 1200);
-    expect(chunks.length).toBeGreaterThanOrEqual(4);
-    expect(chunks.every((c) => c.content.length <= 1400)).toBe(true);
-    expect(chunks.every((c) => c.heading === "H")).toBe(true);
+  it("keeps slices within the size limit, splitting a very long line only when it has to", () => {
+    const text = `${"word ".repeat(300)}\n\n${"x".repeat(9000)}\nend\n`;
+    const slices = splitText(text, { max: 4000 });
+    expect(slices.join("")).toBe(text);
+    expect(slices.every((s) => s.length <= 4000)).toBe(true);
+    expect(slices.length).toBe(4);
+  });
+
+  it("packs many tiny sections so a document never exceeds the chunk limit", () => {
+    const text = Array.from({ length: 400 }, (_, i) => `# Section ${i}\n${"text ".repeat(90)}\n`).join("");
+    const slices = splitText(text, { headings: true });
+    expect(slices.join("")).toBe(text);
+    expect(slices.length).toBeLessThanOrEqual(150);
+  });
+
+  it("builds a short plain excerpt and extensions for extension-less build files", () => {
+    expect(excerptOf("# Tiến độ\n- [x] **Chọn** đề tài\n\nNội dung")).toBe("Tiến độ Chọn đề tài Nội dung");
+    expect(extensionOf("src/App.TSX")).toBe("tsx");
+    expect(extensionOf("Dockerfile")).toBe("docker");
+    expect(extensionOf("LICENSE")).toBe("txt");
+  });
+
+  it("makes project slugs from Vietnamese names", () => {
+    expect(projectSlug("Đồ án NT219 – Mật mã")).toBe("do-an-nt219-mat-ma");
+    expect(projectSlug("  ")).toBe("project-x");
+    expect(projectSlug("A")).toBe("project-a");
+    expect(projectSlug("x".repeat(60))).toHaveLength(40);
   });
 });
 
@@ -89,7 +115,8 @@ Token cũ: ghp_${"a".repeat(36)}
       ["table", "Nộp đề cương", "2026-09-30", true, null],
       ["checklist", "Viết đề cương", "2026-09-28", false, "todo"],
     ]);
-    expect(result.chunks.length).toBeGreaterThan(1);
+    expect(result.chunks.map((c) => c.content).join("")).toBe(result.text);
+    expect(result.excerpt.startsWith("Tiến độ đồ án")).toBe(true);
   });
 
   it("redacts secrets before anything is derived or stored", () => {

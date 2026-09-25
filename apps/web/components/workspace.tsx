@@ -139,7 +139,18 @@ export function outlineTargets(outline: OutlineSymbol[], mode: "lines" | "headin
 
 const DEPTH_PAD = ["pl-0", "pl-3", "pl-6", "pl-9", "pl-12", "pl-14", "pl-16", "pl-18", "pl-20"];
 
-export function OutlinePanel({ outline, todos, mode }: { outline: OutlineSymbol[]; todos: CodeTodo[]; mode: "lines" | "headings" }) {
+export function OutlinePanel({
+  outline,
+  todos,
+  mode,
+  todoAction,
+}: {
+  outline: OutlineSymbol[];
+  todos: CodeTodo[];
+  mode: "lines" | "headings";
+  /** Rendered after each TODO (e.g. "make it a task" for editors). */
+  todoAction?: (todo: CodeTodo) => ReactNode;
+}) {
   const targets = outlineTargets(outline, mode);
   return (
     <div className="flex flex-col gap-5">
@@ -169,11 +180,12 @@ export function OutlinePanel({ outline, todos, mode }: { outline: OutlineSymbol[
           </h2>
           <ul className="flex flex-col gap-0.5">
             {todos.map((todo) => (
-              <li key={`${todo.line}-${todo.tag}`}>
-                <a href={`#L${todo.line}`} className="flex items-baseline gap-1.5 rounded-md px-1.5 py-[3px] text-[12.5px] hover:bg-surface-2">
+              <li key={`${todo.line}-${todo.tag}`} className="flex items-start gap-1">
+                <a href={`#L${todo.line}`} className="flex min-w-0 flex-1 items-baseline gap-1.5 rounded-md px-1.5 py-[3px] text-[12.5px] hover:bg-surface-2">
                   <TodoTag tag={todo.tag} />
                   <span className="min-w-0">{todo.text}</span>
                 </a>
+                {todoAction?.(todo)}
               </li>
             ))}
           </ul>

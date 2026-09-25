@@ -1,4 +1,3 @@
-import type { DocumentChunk } from "./documents";
 import { parseHeading, isFenceLine } from "./markdown";
 
 /**
@@ -456,49 +455,16 @@ export function identifierWords(text: string, limit = 4000): string {
   return [...words].join(" ").slice(0, limit);
 }
 
-export interface CodeChunk extends DocumentChunk {
-  /** Split identifiers, searchable but not shown. */
-  terms: string;
-}
-
-/**
- * Splits source into search chunks of roughly `targetLines`, cutting at blank lines where possible.
- * Each chunk is labelled with the symbol it starts in ("Parser › parseLine").
- */
-export function chunkCode(text: string, outline: OutlineSymbol[], targetLines = 60, maxChars = 4000): CodeChunk[] {
-  const lines = text.split(/\r?\n/);
-  const chunks: CodeChunk[] = [];
-  const labelAt = (line: number): string | null => {
-    const path: OutlineSymbol[] = [];
-    for (const symbol of outline) {
-      if (symbol.line > line) break;
-      path.length = symbol.depth;
-      path[symbol.depth] = symbol;
-    }
-    const names = path.filter(Boolean).map((s) => s.name);
-    return names.length ? names.slice(-2).join(" › ").slice(0, 300) : null;
-  };
-
-  let start = 0;
-  while (start < lines.length && chunks.length < 400) {
-    let end = Math.min(start + targetLines, lines.length);
-    // Prefer to stop at a blank line in the last third of the window.
-    for (let i = end; i > start + Math.floor(targetLines * 0.66) && i < lines.length; i--) {
-      if (!lines[i - 1]!.trim()) {
-        end = i;
-        break;
-      }
-    }
-    let body = lines.slice(start, end).join("\n");
-    if (body.length > maxChars) body = body.slice(0, maxChars);
-    const content = body.replace(/\s+$/, "");
-    if (content.trim()) {
-      const firstLine = start + (lines.slice(start, end).findIndex((l) => l.trim()) + 1);
-      chunks.push({ ord: chunks.length, heading: labelAt(firstLine), content, line: firstLine, terms: identifierWords(content) });
-    }
-    start = end;
+/** "Parser › parseLine": the innermost symbols (at most two levels) a line sits in, from the outline. */
+export function symbolPathAt(outline: OutlineSymbol[], line: number): string | null {
+  const path: OutlineSymbol[] = [];
+  for (const symbol of outline) {
+    if (symbol.line > line) break;
+    path.length = symbol.depth;
+    path[symbol.depth] = symbol;
   }
-  return chunks;
+  const names = path.filter(Boolean).map((s) => s.name);
+  return names.length ? names.slice(-2).join(" › ").slice(0, 300) : null;
 }
 
 // ── explorer tree ─────────────────────────────────────────────────────────────

@@ -9,6 +9,41 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      activity: {
+        Row: {
+          actor_id: string | null
+          at: string
+          id: number
+          project_id: string
+          subject: string | null
+          verb: string
+        }
+        Insert: {
+          actor_id?: string | null
+          at?: string
+          id?: never
+          project_id: string
+          subject?: string | null
+          verb: string
+        }
+        Update: {
+          actor_id?: string | null
+          at?: string
+          id?: never
+          project_id?: string
+          subject?: string | null
+          verb?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_nonces: {
         Row: {
           device_id: string
@@ -342,6 +377,107 @@ export type Database = {
         }
         Relationships: []
       }
+      document_chunks: {
+        Row: {
+          content: string
+          document_id: string
+          idx: number
+          tsv: unknown
+        }
+        Insert: {
+          content: string
+          document_id: string
+          idx: number
+          tsv?: unknown
+        }
+        Update: {
+          content?: string
+          document_id?: string
+          idx?: number
+          tsv?: unknown
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_chunks_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      documents: {
+        Row: {
+          checklist: Json | null
+          device_id: string
+          excerpt: string | null
+          ext: string
+          id: string
+          indexed_at: string
+          modified_at: string
+          owner_id: string
+          path: string
+          project_id: string | null
+          sha256: string
+          size_bytes: number
+          storage_path: string | null
+          summary: string | null
+          title: string
+          visibility: string
+        }
+        Insert: {
+          checklist?: Json | null
+          device_id: string
+          excerpt?: string | null
+          ext: string
+          id?: string
+          indexed_at?: string
+          modified_at: string
+          owner_id: string
+          path: string
+          project_id?: string | null
+          sha256: string
+          size_bytes: number
+          storage_path?: string | null
+          summary?: string | null
+          title: string
+          visibility?: string
+        }
+        Update: {
+          checklist?: Json | null
+          device_id?: string
+          excerpt?: string | null
+          ext?: string
+          id?: string
+          indexed_at?: string
+          modified_at?: string
+          owner_id?: string
+          path?: string
+          project_id?: string | null
+          sha256?: string
+          size_bytes?: number
+          storage_path?: string | null
+          summary?: string | null
+          title?: string
+          visibility?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_device_id_owner_id_fkey"
+            columns: ["device_id", "owner_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id", "user_id"]
+          },
+          {
+            foreignKeyName: "documents_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       events: {
         Row: {
           all_day: boolean
@@ -460,6 +596,56 @@ export type Database = {
         }
         Relationships: []
       }
+      milestones: {
+        Row: {
+          created_at: string
+          done: boolean
+          due_on: string
+          hard: boolean
+          id: string
+          project_id: string
+          source: string
+          source_key: string | null
+          source_ref: Json
+          starts_on: string | null
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          done?: boolean
+          due_on: string
+          hard?: boolean
+          id?: string
+          project_id: string
+          source?: string
+          source_key?: string | null
+          source_ref?: Json
+          starts_on?: string | null
+          title: string
+        }
+        Update: {
+          created_at?: string
+          done?: boolean
+          due_on?: string
+          hard?: boolean
+          id?: string
+          project_id?: string
+          source?: string
+          source_key?: string | null
+          source_ref?: Json
+          starts_on?: string | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "milestones_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           ai_consent_at: string | null
@@ -501,6 +687,88 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      project_members: {
+        Row: {
+          joined_at: string
+          project_id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          joined_at?: string
+          project_id: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          joined_at?: string
+          project_id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_members_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      projects: {
+        Row: {
+          color: string
+          course_id: string | null
+          created_at: string
+          description: string | null
+          due_on: string | null
+          id: string
+          kind: string
+          name: string
+          owner_id: string
+          slug: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          color?: string
+          course_id?: string | null
+          created_at?: string
+          description?: string | null
+          due_on?: string | null
+          id?: string
+          kind?: string
+          name: string
+          owner_id?: string
+          slug: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          color?: string
+          course_id?: string | null
+          created_at?: string
+          description?: string | null
+          due_on?: string | null
+          id?: string
+          kind?: string
+          name?: string
+          owner_id?: string
+          slug?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "projects_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       quota_snapshots: {
         Row: {
@@ -635,6 +903,7 @@ export type Database = {
       }
       tasks: {
         Row: {
+          assignee_id: string | null
           completed_at: string | null
           course_id: string | null
           created_at: string
@@ -644,6 +913,7 @@ export type Database = {
           kind: string
           notes: string | null
           progress: number
+          project_id: string | null
           source: string
           source_key: string | null
           source_ref: Json
@@ -653,6 +923,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          assignee_id?: string | null
           completed_at?: string | null
           course_id?: string | null
           created_at?: string
@@ -662,6 +933,7 @@ export type Database = {
           kind?: string
           notes?: string | null
           progress?: number
+          project_id?: string | null
           source?: string
           source_key?: string | null
           source_ref?: Json
@@ -671,6 +943,7 @@ export type Database = {
           user_id?: string
         }
         Update: {
+          assignee_id?: string | null
           completed_at?: string | null
           course_id?: string | null
           created_at?: string
@@ -680,6 +953,7 @@ export type Database = {
           kind?: string
           notes?: string | null
           progress?: number
+          project_id?: string | null
           source?: string
           source_key?: string | null
           source_ref?: Json
@@ -695,6 +969,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "courses"
             referencedColumns: ["id", "user_id"]
+          },
+          {
+            foreignKeyName: "tasks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -767,6 +1048,19 @@ export type Database = {
         Returns: boolean
       }
       hook_before_user_created: { Args: { event: Json }; Returns: Json }
+      search_documents: {
+        Args: { p_limit?: number; p_project?: string; q: string }
+        Returns: {
+          document_id: string
+          ext: string
+          modified_at: string
+          path: string
+          project_id: string
+          rank: number
+          snippet: string
+          title: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

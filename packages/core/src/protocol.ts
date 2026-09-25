@@ -137,3 +137,48 @@ export function maskLabel(label: string): string {
   if (at > 0) return `${label.slice(0, Math.min(2, at))}…${label.slice(at)}`.slice(0, 120);
   return label.slice(0, 120);
 }
+
+// ── documents (M3) ──────────────────────────────────────────────────────────
+
+export const PROJECT_SLUG = /^[a-z0-9][a-z0-9-]{1,39}$/;
+export const DOCUMENT_EXTENSIONS = ["md", "markdown", "txt", "tex", "docx", "pdf", "xlsx", "pptx"] as const;
+
+const checklistItemSchema = z.object({
+  key: z.string().regex(/^[0-9a-f]{16}$/),
+  text: z.string().min(1).max(300),
+  status: z.enum(["todo", "doing", "attention", "done", "cut"]),
+  section: z.string().max(300).nullable(),
+  line: z.number().int().positive(),
+});
+
+const milestoneSchema = z.object({
+  key: z.string().regex(/^[0-9a-f]{16}$/),
+  title: z.string().min(1).max(300),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  hard: z.boolean(),
+  line: z.number().int().positive(),
+});
+
+export const documentSchema = z.object({
+  /** Path relative to the root, forward slashes, e.g. "Research/Checklist.md". */
+  path: z.string().min(1).max(1000),
+  title: z.string().min(1).max(300),
+  ext: z.enum(DOCUMENT_EXTENSIONS),
+  sizeBytes: z.number().int().min(0),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  modifiedAt: z.iso.datetime({ offset: true }),
+  excerpt: z.string().max(600),
+  chunks: z.array(z.string().max(4000)).max(150),
+  checklist: z.array(checklistItemSchema).max(2000).nullable(),
+  milestones: z.array(milestoneSchema).max(300),
+});
+export type DocumentPayloadItem = z.infer<typeof documentSchema>;
+
+export const documentPayloadSchema = z.object({
+  /** Project the root is mapped to (created on first sync if missing). */
+  project: z.object({ slug: z.string().regex(PROJECT_SLUG), name: z.string().min(1).max(100) }).nullable(),
+  documents: z.array(documentSchema).max(40),
+  removed: z.array(z.string().min(1).max(1000)).max(1000),
+});
+export type DocumentPayload = z.infer<typeof documentPayloadSchema>;

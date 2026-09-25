@@ -1,16 +1,27 @@
--- M4: study groups, email-bound invites (which are also the only way past closed registration besides
--- the allow-list), read-only project sharing with project-scoped RLS, and opt-in free/busy sharing.
+-- M4: study groups and team projects.
 --
--- Membership checks live in SECURITY DEFINER helpers so policies on one table never recurse through
--- policies on another. Set-returning helpers are wrapped in (select …) so Postgres evaluates them once
--- per statement instead of once per row.
+-- * Groups (optionally for a course, e.g. "NT219.Q11") with email-bound invites, which are also the only
+--   way past closed registration besides the allow-list, and opt-in free/busy sharing.
+-- * A project can be run by a group: linking them makes every group member a project member with a default
+--   role (members who join later are added, members who leave are removed). The project owner (team lead)
+--   changes roles per person: editor (can plan and assign) or viewer (reads, works on their own tasks).
+-- * Per-task permissions: each project task has an assignee and a permission level.
+--     team      owner, editors and the assignee may change it (default)
+--     assignee  only the assignee (and the owner) may change it
+--     owner     locked: only the project owner may change it
+--   An assignee who is not an editor may update status, progress, notes and the estimate of their own task,
+--   nothing else; only the owner changes a task's permission level.
+--
+-- Membership checks live in SECURITY DEFINER helpers so policies never recurse through each other.
 
--- ───────────────────────────── tables ─────────────────────────────
+-- ───────────────────────────── groups ─────────────────────────────
 
 create table public.groups (
   id uuid primary key default gen_random_uuid(),
   name text not null check (char_length(name) between 1 and 80),
   description text check (char_length(description) <= 1000),
+  -- The class this group studies together, as UIT writes it ("NT219.Q11"); free text, optional.
+  course_code text check (char_length(course_code) <= 40),
   color text not null default '#0f9d8a' check (color ~ '^#[0-9a-fA-F]{6}$'),
   created_by uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now(),
@@ -46,14 +57,19 @@ create table public.group_invites (
 create index group_invites_email_idx on public.group_invites (email) where accepted_at is null and revoked_at is null;
 create index group_invites_group_idx on public.group_invites (group_id);
 
-create table public.project_shares (
+-- A project run by a group, and the role new members get.
+create table public.project_groups (
   project_id uuid not null references public.projects (id) on delete cascade,
   group_id uuid not null references public.groups (id) on delete cascade,
-  shared_by uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  default_role text not null default 'viewer' check (default_role in ('editor', 'viewer')),
+  linked_by uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now(),
   primary key (project_id, group_id)
 );
-create index project_shares_group_idx on public.project_shares (group_id);
+create index project_groups_group_idx on public.project_groups (group_id);
+
+-- Which group brought a member into a project (null: added directly), so unlinking removes only them.
+alter table public.project_members add column via_group uuid;
 
 -- ───────────────────────────── helpers ─────────────────────────────
 
@@ -83,31 +99,33 @@ as $$
   where email = private.my_email() and accepted_at is null and revoked_at is null and expires_at > now();
 $$;
 
--- Projects other people shared with a group the caller belongs to.
-create function private.shared_project_ids() returns setof uuid
+-- Whether the caller may change a task, from its project, creator, assignee and permission level.
+create function private.can_change_task(p_project uuid, p_creator uuid, p_assignee uuid, p_permission text) returns boolean
 language sql stable security definer set search_path = ''
 as $$
-  select s.project_id
-  from public.project_shares s
-  join public.group_members m on m.group_id = s.group_id
-  where m.user_id = (select auth.uid());
+  select case
+    when p_project is null then p_creator = (select auth.uid())
+    else coalesce(private.project_role(p_project) = 'owner', false)
+      or (p_permission = 'team' and (private.can_edit_project(p_project) or p_assignee = (select auth.uid())))
+      or (p_permission = 'assignee' and p_assignee = (select auth.uid()))
+  end;
 $$;
 
 revoke all on function private.my_group_ids(), private.is_group_owner(uuid), private.my_email(),
-  private.invited_group_ids(), private.shared_project_ids() from public, anon;
+  private.invited_group_ids(), private.can_change_task(uuid, uuid, uuid, text) from public, anon;
 grant execute on function private.my_group_ids(), private.is_group_owner(uuid), private.my_email(),
-  private.invited_group_ids(), private.shared_project_ids() to authenticated, service_role;
+  private.invited_group_ids(), private.can_change_task(uuid, uuid, uuid, text) to authenticated, service_role;
 
 -- ───────────────────────────── group policies ─────────────────────────────
 
 alter table public.groups enable row level security;
 alter table public.group_members enable row level security;
 alter table public.group_invites enable row level security;
-alter table public.project_shares enable row level security;
-revoke all on public.groups, public.group_members, public.group_invites, public.project_shares from anon, authenticated;
+alter table public.project_groups enable row level security;
+revoke all on public.groups, public.group_members, public.group_invites, public.project_groups from anon, authenticated;
 
 grant select, delete on public.groups to authenticated;
-grant update (name, description, color) on public.groups to authenticated;
+grant update (name, description, course_code, color) on public.groups to authenticated;
 create policy "members and invitees read groups" on public.groups
   for select to authenticated
   using (id in (select private.my_group_ids()) or id in (select private.invited_group_ids()));
@@ -133,18 +151,11 @@ create policy "owners and invitees read invites" on public.group_invites
 create policy "owners revoke invites" on public.group_invites
   for update to authenticated using (private.is_group_owner(group_id)) with check (private.is_group_owner(group_id));
 
-grant select, insert, delete on public.project_shares to authenticated;
-create policy "members read shares" on public.project_shares
-  for select to authenticated using (shared_by = (select auth.uid()) or group_id in (select private.my_group_ids()));
-create policy "owners share their projects with their groups" on public.project_shares
-  for insert to authenticated
-  with check (
-    shared_by = (select auth.uid())
-    and group_id in (select private.my_group_ids())
-    and exists (select 1 from public.projects p where p.id = project_id and p.user_id = (select auth.uid()))
-  );
-create policy "sharers and group owners unshare" on public.project_shares
-  for delete to authenticated using (shared_by = (select auth.uid()) or private.is_group_owner(group_id));
+-- Links are made and removed through RPCs; members of either side can see them.
+grant select on public.project_groups to authenticated;
+create policy "project and group members read links" on public.project_groups
+  for select to authenticated
+  using (private.is_project_member(project_id) or group_id in (select private.my_group_ids()));
 
 -- A group always keeps an owner: the last one cannot leave or be removed (deleting the group still works,
 -- because the cascade runs after the group row is gone).
@@ -163,47 +174,138 @@ $$;
 create trigger group_members_keep_owner before delete on public.group_members
   for each row execute function private.keep_group_owner();
 
--- Leaving a group withdraws the projects you shared with it.
-create function private.unshare_on_leave() returns trigger
+-- ───────────────────────────── group ↔ project membership ─────────────────────────────
+
+create function private.sync_linked_group() returns trigger
 language plpgsql security definer set search_path = ''
 as $$
 begin
-  delete from public.project_shares where group_id = old.group_id and shared_by = old.user_id;
+  if tg_op = 'INSERT' then
+    insert into public.project_members (project_id, user_id, role, via_group)
+    select new.project_id, m.user_id, new.default_role, new.group_id
+    from public.group_members m where m.group_id = new.group_id
+    on conflict (project_id, user_id) do nothing;
+    return new;
+  end if;
+  delete from public.project_members
+  where project_id = old.project_id and via_group = old.group_id and role <> 'owner';
   return old;
 end;
 $$;
-create trigger group_members_unshare after delete on public.group_members
-  for each row execute function private.unshare_on_leave();
+create trigger project_groups_sync after insert or delete on public.project_groups
+  for each row execute function private.sync_linked_group();
 
--- ───────────────────────────── project-scoped reads ─────────────────────────────
-
-drop policy "owners read projects" on public.projects;
-create policy "owners and group members read projects" on public.projects
-  for select to authenticated
-  using (user_id = (select auth.uid()) or id in (select private.shared_project_ids()));
-
-do $$
-declare
-  t text;
+create function private.sync_group_member() returns trigger
+language plpgsql security definer set search_path = ''
+as $$
 begin
-  foreach t in array array['project_documents', 'checklist_items', 'document_chunks', 'project_progress_daily'] loop
-    execute format('drop policy "owners read %1$s" on public.%1$I', t);
-    execute format(
-      'create policy "owners and group members read %1$s" on public.%1$I for select to authenticated
-         using (user_id = (select auth.uid()) or project_id in (select private.shared_project_ids()))', t);
-  end loop;
+  if tg_op = 'INSERT' then
+    insert into public.project_members (project_id, user_id, role, via_group)
+    select l.project_id, new.user_id, l.default_role, l.group_id
+    from public.project_groups l where l.group_id = new.group_id
+    on conflict (project_id, user_id) do nothing;
+    return new;
+  end if;
+  delete from public.project_members
+  where user_id = old.user_id and via_group = old.group_id and role <> 'owner';
+  return old;
 end;
 $$;
+create trigger group_members_sync_projects after insert or delete on public.group_members
+  for each row execute function private.sync_group_member();
 
--- Deadlines of shared projects are visible (read-only) to the group.
-drop policy "owners read tasks" on public.tasks;
-create policy "owners and group members read tasks" on public.tasks
-  for select to authenticated
-  using (user_id = (select auth.uid()) or (project_id is not null and project_id in (select private.shared_project_ids())));
+-- Someone leaving a project stops being the assignee of its tasks.
+create function private.unassign_on_leave() returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  update public.tasks set assignee_id = null where project_id = old.project_id and assignee_id = old.user_id;
+  return old;
+end;
+$$;
+create trigger project_members_unassign after delete on public.project_members
+  for each row execute function private.unassign_on_leave();
 
--- ───────────────────────────── RPCs ─────────────────────────────
+-- ───────────────────────────── per-task permissions ─────────────────────────────
 
-create function public.create_group(p_name text, p_description text default null, p_color text default null)
+alter table public.tasks
+  add column permission text not null default 'team' check (permission in ('team', 'assignee', 'owner'));
+grant insert (permission), update (permission) on public.tasks to authenticated;
+
+drop policy "update own or project tasks" on public.tasks;
+create policy "change tasks the caller may change" on public.tasks
+  for update to authenticated
+  using (private.can_change_task(project_id, user_id, assignee_id, permission))
+  with check (private.can_change_task(project_id, user_id, assignee_id, permission));
+
+drop policy "delete manual tasks" on public.tasks;
+create policy "delete manual tasks the caller may change" on public.tasks
+  for delete to authenticated
+  using (source = 'manual' and (
+    (project_id is null and user_id = (select auth.uid()))
+    or (project_id is not null and (
+      private.project_role(project_id) = 'owner' or (permission = 'team' and private.can_edit_project(project_id))))));
+
+-- Column rules RLS cannot express: an assignee who is not an editor changes only the progress of their own
+-- work, and only the owner restricts or unlocks a task.
+create function private.guard_task_permissions() returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_role text;
+begin
+  -- Server code (no signed-in user) and our own maintenance triggers (nested) are trusted.
+  if (select auth.uid()) is null or new.project_id is null or pg_trigger_depth() > 1 then
+    return new;
+  end if;
+  if tg_op = 'INSERT' or old.project_id is distinct from new.project_id then
+    if new.permission <> 'team' and private.project_role(new.project_id) is distinct from 'owner' then
+      raise exception 'only the project owner can restrict a task' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+  v_role := private.project_role(old.project_id);
+  if v_role = 'owner' then
+    return new;
+  end if;
+  if new.permission is distinct from old.permission then
+    raise exception 'only the project owner changes who may edit a task' using errcode = '42501';
+  end if;
+  if v_role = 'editor' and old.permission = 'team' then
+    return new;
+  end if;
+  if (new.title, new.kind, new.due_at, new.assignee_id, new.course_id)
+     is distinct from (old.title, old.kind, old.due_at, old.assignee_id, old.course_id) then
+    raise exception 'as the assignee you can update status, progress, notes and the estimate' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+create trigger tasks_guard_permissions before insert or update on public.tasks
+  for each row execute function private.guard_task_permissions();
+
+-- Assignments show up in the project's activity feed.
+create function private.log_task_assignment() returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  if new.project_id is null or new.assignee_id is not distinct from old.assignee_id then
+    return new;
+  end if;
+  insert into public.activity (project_id, actor_id, verb, subject)
+  values (new.project_id, (select auth.uid()),
+          case when new.assignee_id is null then 'unassigned'
+               else left('assigned to ' || coalesce((select nullif(display_name, '') from public.profiles where id = new.assignee_id), 'a member'), 60) end,
+          new.title);
+  return new;
+end;
+$$;
+create trigger tasks_log_assignment after update of assignee_id on public.tasks
+  for each row execute function private.log_task_assignment();
+
+-- ───────────────────────────── RPCs: groups ─────────────────────────────
+
+create function public.create_group(p_name text, p_description text default null, p_color text default null, p_course_code text default null)
 returns uuid
 language plpgsql security definer set search_path = ''
 as $$
@@ -211,14 +313,16 @@ declare
   v_user uuid := auth.uid();
   v_group uuid;
 begin
+  perform private.require_session();
   if v_user is null then
     raise exception 'sign in first' using errcode = '42501';
   end if;
   if (select count(*) from public.group_members where user_id = v_user) >= 20 then
     raise exception 'you are already in 20 groups' using errcode = 'P0001';
   end if;
-  insert into public.groups (name, description, color, created_by)
-  values (trim(p_name), nullif(trim(coalesce(p_description, '')), ''), coalesce(p_color, '#0f9d8a'), v_user)
+  insert into public.groups (name, description, course_code, color, created_by)
+  values (trim(p_name), nullif(trim(coalesce(p_description, '')), ''), nullif(upper(trim(coalesce(p_course_code, ''))), ''),
+          coalesce(p_color, '#0f9d8a'), v_user)
   returning id into v_group;
   insert into public.group_members (group_id, user_id, role) values (v_group, v_user, 'owner');
   perform private.audit('group.create', 'group', v_group::text);
@@ -237,6 +341,7 @@ declare
   v_email text := lower(trim(p_email));
   v_token text;
 begin
+  perform private.require_session();
   if v_user is null or not private.is_group_owner(p_group) then
     raise exception 'only group owners can invite' using errcode = '42501';
   end if;
@@ -272,6 +377,7 @@ declare
   v_user uuid := auth.uid();
   v_invite public.group_invites%rowtype;
 begin
+  perform private.require_session();
   if v_user is null then
     raise exception 'sign in first' using errcode = '42501';
   end if;
@@ -303,13 +409,134 @@ as $$
   left join public.profiles p on p.id = m.user_id
   where m.group_id = p_group
     and exists (select 1 from public.group_members me where me.group_id = p_group and me.user_id = (select auth.uid()))
+    and (select private.session_allowed())
   order by m.role = 'owner' desc, m.joined_at;
 $$;
 
-revoke all on function public.create_group(text, text, text), public.create_group_invite(uuid, text, integer),
-  public.accept_group_invite(uuid), public.group_roster(uuid) from public, anon;
-grant execute on function public.create_group(text, text, text), public.create_group_invite(uuid, text, integer),
-  public.accept_group_invite(uuid), public.group_roster(uuid) to authenticated;
+-- ───────────────────────────── RPCs: team projects ─────────────────────────────
+
+-- The project owner hands the project to a group they belong to; every member joins with default_role.
+create function public.link_group_project(p_project uuid, p_group uuid, p_role text default 'viewer') returns void
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  perform private.require_session();
+  if private.project_role(p_project) is distinct from 'owner' then
+    raise exception 'only the project owner can add a group' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.group_members where group_id = p_group and user_id = (select auth.uid())) then
+    raise exception 'you are not in that group' using errcode = '42501';
+  end if;
+  if p_role not in ('editor', 'viewer') then
+    raise exception 'role must be editor or viewer' using errcode = '22023';
+  end if;
+  insert into public.project_groups (project_id, group_id, default_role, linked_by)
+  values (p_project, p_group, p_role, (select auth.uid()))
+  on conflict (project_id, group_id) do update set default_role = excluded.default_role;
+  insert into public.activity (project_id, actor_id, verb, subject)
+  values (p_project, (select auth.uid()), 'added group', (select name from public.groups where id = p_group));
+  perform private.audit('project.link_group', 'project', p_project::text, jsonb_build_object('group', p_group));
+end;
+$$;
+
+create function public.unlink_group_project(p_project uuid, p_group uuid) returns void
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  perform private.require_session();
+  if private.project_role(p_project) is distinct from 'owner' and not private.is_group_owner(p_group) then
+    raise exception 'only the project owner or the group owner can remove the link' using errcode = '42501';
+  end if;
+  delete from public.project_groups where project_id = p_project and group_id = p_group;
+  perform private.audit('project.unlink_group', 'project', p_project::text, jsonb_build_object('group', p_group));
+end;
+$$;
+
+-- Members of a project with display names, roles and how they joined, for members only.
+create function public.project_roster(p_project uuid)
+returns table (user_id uuid, display_name text, role text, via_group uuid, shares_documents boolean, joined_at timestamptz)
+language sql stable security definer set search_path = ''
+as $$
+  select m.user_id, coalesce(nullif(p.display_name, ''), 'Member'), m.role, m.via_group, m.shares_documents, m.joined_at
+  from public.project_members m
+  left join public.profiles p on p.id = m.user_id
+  where m.project_id = p_project and private.is_project_member(p_project) and (select private.session_allowed())
+  order by case m.role when 'owner' then 0 when 'editor' then 1 else 2 end, m.joined_at;
+$$;
+
+-- The owner makes a member an editor or a viewer. Ownership itself is not changed here.
+create function public.set_project_member_role(p_project uuid, p_user uuid, p_role text) returns void
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  perform private.require_session();
+  if private.project_role(p_project) is distinct from 'owner' then
+    raise exception 'only the project owner changes roles' using errcode = '42501';
+  end if;
+  if p_role not in ('editor', 'viewer') then
+    raise exception 'role must be editor or viewer' using errcode = '22023';
+  end if;
+  update public.project_members set role = p_role where project_id = p_project and user_id = p_user and role <> 'owner';
+  if not found then
+    raise exception 'no such member (the owner keeps the owner role)' using errcode = 'P0002';
+  end if;
+  insert into public.activity (project_id, actor_id, verb, subject)
+  values (p_project, (select auth.uid()), 'made ' || p_role,
+          (select coalesce(nullif(display_name, ''), 'Member') from public.profiles where id = p_user));
+  perform private.audit('project.set_role', 'project', p_project::text, jsonb_build_object('member', p_user, 'role', p_role));
+end;
+$$;
+
+-- The owner adds someone who shares a group with them (so members cannot be looked up by email here).
+create function public.add_project_member(p_project uuid, p_user uuid, p_role text default 'viewer') returns void
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  perform private.require_session();
+  if private.project_role(p_project) is distinct from 'owner' then
+    raise exception 'only the project owner adds members' using errcode = '42501';
+  end if;
+  if p_role not in ('editor', 'viewer') then
+    raise exception 'role must be editor or viewer' using errcode = '22023';
+  end if;
+  if not exists (select 1 from public.group_members a join public.group_members b on b.group_id = a.group_id
+                 where a.user_id = (select auth.uid()) and b.user_id = p_user) then
+    raise exception 'you can add people from your groups only' using errcode = '42501';
+  end if;
+  if (select count(*) from public.project_members where project_id = p_project) >= 50 then
+    raise exception 'a project has at most 50 members' using errcode = 'P0001';
+  end if;
+  insert into public.project_members (project_id, user_id, role) values (p_project, p_user, p_role)
+  on conflict (project_id, user_id) do nothing;
+  perform private.audit('project.add_member', 'project', p_project::text, jsonb_build_object('member', p_user));
+end;
+$$;
+
+-- The owner removes a member, or a member leaves. The owner cannot leave their own project.
+create function public.remove_project_member(p_project uuid, p_user uuid) returns void
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  perform private.require_session();
+  if p_user <> (select auth.uid()) and private.project_role(p_project) is distinct from 'owner' then
+    raise exception 'only the project owner removes members' using errcode = '42501';
+  end if;
+  delete from public.project_members where project_id = p_project and user_id = p_user and role <> 'owner';
+  if not found then
+    raise exception 'no such member (the owner cannot leave; delete the project instead)' using errcode = 'P0002';
+  end if;
+  perform private.audit('project.remove_member', 'project', p_project::text, jsonb_build_object('member', p_user));
+end;
+$$;
+
+revoke all on function public.create_group(text, text, text, text), public.create_group_invite(uuid, text, integer),
+  public.accept_group_invite(uuid), public.group_roster(uuid), public.link_group_project(uuid, uuid, text),
+  public.unlink_group_project(uuid, uuid), public.project_roster(uuid), public.set_project_member_role(uuid, uuid, text),
+  public.add_project_member(uuid, uuid, text), public.remove_project_member(uuid, uuid) from public, anon;
+grant execute on function public.create_group(text, text, text, text), public.create_group_invite(uuid, text, integer),
+  public.accept_group_invite(uuid), public.group_roster(uuid), public.link_group_project(uuid, uuid, text),
+  public.unlink_group_project(uuid, uuid), public.project_roster(uuid), public.set_project_member_role(uuid, uuid, text),
+  public.add_project_member(uuid, uuid, text), public.remove_project_member(uuid, uuid) to authenticated;
 
 -- ───────────────────────────── closed registration + invites ─────────────────────────────
 

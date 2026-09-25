@@ -7,49 +7,6 @@ alter table public.profiles
   add column ai_language text not null default 'vi' check (ai_language in ('vi', 'en'));
 grant update (ai_daily_tokens, ai_language) on public.profiles to authenticated;
 
--- Questions ("Việc gì cần làm trước hạn nộp abstract?") rarely contain every word of the passage that
--- answers them, so retrieval for AI answers matches ANY word and lets ts_rank order the results. The search
--- box keeps requiring every word.
-drop function public.search_documents(text, uuid, integer);
-drop function private.search_tsquery(text);
-
-create function private.search_tsquery(p_query text, p_any boolean default false) returns tsquery
-language sql
-immutable
-parallel safe
-set search_path = ''
-as $$
-  select case when count(*) = 0 then null
-              else to_tsquery('simple'::regconfig, string_agg(t || ':*', case when p_any then ' | ' else ' & ' end))
-         end
-  from (
-    select distinct t
-    from regexp_split_to_table(private.search_fold(left(p_query, 200)), '[^[:alnum:]]+') as t
-    where t <> '' and (not p_any or length(t) > 1)
-    limit 12
-  ) terms;
-$$;
-grant execute on function private.search_tsquery(text, boolean) to authenticated, service_role;
-
-create function public.search_documents(p_query text, p_project uuid default null, p_limit integer default 30, p_any boolean default false)
-returns table (chunk_id bigint, document_id uuid, project_id uuid, heading text, content text, line integer, rank real)
-language sql
-stable
-security invoker
-set search_path = ''
-as $$
-  select c.id, c.document_id, c.project_id, c.heading, c.content, c.line, ts_rank_cd(c.fts, q.tsq) as rank
-  from public.document_chunks c
-  cross join (select private.search_tsquery(p_query, p_any) as tsq) q
-  where q.tsq is not null
-    and c.fts @@ q.tsq
-    and (p_project is null or c.project_id = p_project)
-  order by rank desc, c.id
-  limit least(greatest(coalesce(p_limit, 30), 1), 100);
-$$;
-revoke all on function public.search_documents(text, uuid, integer, boolean) from public, anon;
-grant execute on function public.search_documents(text, uuid, integer, boolean) to authenticated, service_role;
-
 create table public.ai_jobs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
@@ -208,7 +165,7 @@ language sql security definer set search_path = ''
 as $$
   with c as (
     update public.ai_jobs set status = 'cancelled', finished_at = now(), messages = '[]'::jsonb
-    where id = p_job and user_id = (select auth.uid()) and status = 'queued'
+    where id = p_job and user_id = (select auth.uid()) and status = 'queued' and (select private.session_allowed())
     returning 1)
   select exists (select 1 from c);
 $$;

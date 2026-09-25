@@ -1,114 +1,73 @@
--- Projects and indexed documents: owner-only reads, server-only writes to derived tables,
--- accent-insensitive search that respects RLS, and owner consistency across tasks ↔ projects.
+-- Project roles (owner / editor / viewer / outsider) across projects, tasks, milestones and documents,
+-- plus accent-insensitive search that respects document visibility.
 begin;
-select plan(30);
+select plan(26);
 
-select tests.create_user('e0000000-0000-0000-0000-00000000000e', 'erin@example.com');
-select tests.create_user('f0000000-0000-0000-0000-00000000000f', 'frank@example.com');
+select tests.create_user('e0000000-0000-0000-0000-00000000000e', 'erin@example.com');   -- owner
+select tests.create_user('f0000000-0000-0000-0000-00000000000f', 'frank@example.com');  -- editor
+select tests.create_user('90000000-0000-0000-0000-000000000009', 'gina@example.com');   -- viewer
+select tests.create_user('80000000-0000-0000-0000-000000000008', 'hank@example.com');   -- outsider
 
--- Fixtures as the server would write them (service role bypasses RLS; here: postgres).
-insert into public.projects (id, user_id, name, source, folder_key, folder_label)
-values ('e1000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000e', 'Đồ án IDS', 'agent', repeat('a', 64), '…/Research/IDS');
-insert into public.project_documents (id, user_id, project_id, path, kind, title, content_hash, content, items_total, items_done, items_cut)
-values ('e2000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000e', 'e1000000-0000-0000-0000-000000000001',
-        'tien-do.md', 'markdown', 'Tiến độ', repeat('b', 64), '# Tiến độ', 4, 2, 1);
-insert into public.checklist_items (user_id, project_id, document_id, item_key, ord, text, status, line)
-values ('e0000000-0000-0000-0000-00000000000e', 'e1000000-0000-0000-0000-000000000001', 'e2000000-0000-0000-0000-000000000001',
-        '0123456789abcdef', 0, 'Viết phần Method', 'doing', 3);
-insert into public.document_chunks (user_id, project_id, document_id, ord, heading, content)
-values ('e0000000-0000-0000-0000-00000000000e', 'e1000000-0000-0000-0000-000000000001', 'e2000000-0000-0000-0000-000000000001',
-        0, 'Tiến độ › Việc còn lại', 'Hoàn thiện phần Thảo luận trước hạn nộp abstract');
-insert into public.tasks (id, user_id, title, kind, source, source_key, project_id, document_id, due_at)
-values ('e3000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000e', 'Hạn nộp abstract', 'milestone', 'markdown',
-        'md:x', 'e1000000-0000-0000-0000-000000000001', 'e2000000-0000-0000-0000-000000000001', now() + interval '5 days');
-
-select throws_ok(
-  $$insert into public.project_documents (user_id, project_id, path, kind, title, content_hash)
-    values ('e0000000-0000-0000-0000-00000000000e', 'e1000000-0000-0000-0000-000000000001', '../outside.md', 'markdown', 'x', repeat('c', 64))$$,
-  '23514', null, 'document paths cannot climb out of the folder');
-select throws_ok(
-  $$insert into public.project_documents (user_id, project_id, path, kind, title, content_hash)
-    values ('f0000000-0000-0000-0000-00000000000f', 'e1000000-0000-0000-0000-000000000001', 'x.md', 'markdown', 'x', repeat('c', 64))$$,
-  '23503', null, 'a document cannot be attributed to someone else''s project');
-
--- ── Erin ──
+-- ── owner creates a project ──────────────────────────────────────────────
 select tests.authenticate_as('e0000000-0000-0000-0000-00000000000e');
-select lives_ok($$insert into public.projects (name, color) values ('Thesis', '#0f9d8a')$$, 'owner creates a manual project');
-select is((select user_id from public.projects where name = 'Thesis'), 'e0000000-0000-0000-0000-00000000000e'::uuid, 'project owner defaults to the caller');
-select throws_ok($$insert into public.projects (name, source, folder_key) values ('Fake', 'agent', repeat('d', 64))$$,
-  '42501', null, 'agent projects can only be created by the server');
-select throws_ok($$update public.projects set items_done = 99$$, '42501', null, 'derived totals are not writable');
-select lives_ok($$update public.projects set name = 'IDS thesis', status = 'paused' where id = 'e1000000-0000-0000-0000-000000000001'$$,
-  'owner renames and pauses an agent project');
-select throws_ok(
-  $$insert into public.project_documents (user_id, project_id, path, kind, title, content_hash)
-    values ('e0000000-0000-0000-0000-00000000000e', 'e1000000-0000-0000-0000-000000000001', 'y.md', 'markdown', 'y', repeat('c', 64))$$,
-  '42501', null, 'documents are written only by the server');
-select is((select count(*)::int from public.checklist_items), 1, 'owner reads her checklist items');
-select is((select document_id from public.search_documents('tien do')), 'e2000000-0000-0000-0000-000000000001'::uuid,
-  'search is accent-insensitive ("tien do" finds "Tiến độ")');
-select is((select count(*)::int from public.search_documents('thao lu')), 1, 'search matches word prefixes');
-select is((select count(*)::int from public.search_documents('abstract', 'e1000000-0000-0000-0000-000000000001')), 1, 'search can be scoped to a project');
-select lives_ok($$select * from public.search_documents($q$foo & | ! ' :* <-> (bar$q$)$$, 'tsquery operators in the query cannot break the search');
-select is((select count(*)::int from public.search_documents('***')), 0, 'a query without words returns nothing');
-select is((select count(*)::int from public.search_documents('Việc gì cần làm trước hạn nộp abstract?')), 0, 'the search box requires every word');
-select is((select count(*)::int from public.search_documents('Việc gì cần làm trước hạn nộp abstract?', null, 30, true)), 1,
-  'question retrieval matches any word');
-select lives_ok($$insert into public.tasks (title, project_id) values ('Draft outline', 'e1000000-0000-0000-0000-000000000001')$$,
-  'owner links a manual task to her project');
-select throws_ok($$select public.refresh_project_stats('e1000000-0000-0000-0000-000000000001')$$, '42501', null,
-  'API roles cannot run the stats refresh');
+select lives_ok($$insert into public.projects (id, slug, name, kind) values ('e1000000-0000-0000-0000-000000000001', 'nt219-capstone', 'NT219 Capstone', 'course')$$,
+  'a user creates a project');
+select is((select role from public.project_members where user_id = 'e0000000-0000-0000-0000-00000000000e'), 'owner', 'creator becomes owner member');
+select throws_ok($$insert into public.projects (owner_id, slug, name) values ('80000000-0000-0000-0000-000000000008', 'x-project', 'x')$$,
+  '42501', null, 'projects cannot be created for someone else');
+select lives_ok($$insert into public.tasks (title, project_id) values ('Chọn đề tài', 'e1000000-0000-0000-0000-000000000001')$$, 'owner adds a project task');
+select is((select subject from public.activity where verb = 'created task'), 'Chọn đề tài', 'task creation is logged in the activity feed');
 
--- ── Frank ──
-select tests.authenticate_as('f0000000-0000-0000-0000-00000000000f');
-select is((select count(*)::int from public.projects) + (select count(*)::int from public.project_documents)
-          + (select count(*)::int from public.checklist_items) + (select count(*)::int from public.document_chunks), 0,
-  'other users see no projects, documents, items or chunks');
-select is((select count(*)::int from public.search_documents('tien do')), 0, 'search never returns other users'' chunks');
-select throws_ok($$insert into public.tasks (title, project_id) values ('Hijack', 'e1000000-0000-0000-0000-000000000001')$$,
-  '23503', null, 'a task cannot be linked to someone else''s project');
-select results_eq($$with d as (delete from public.projects returning 1) select count(*)::int from d$$, $$values (0)$$,
-  'other users cannot delete the project');
-select throws_ok(
-  $$select public.ingest_document('e1000000-0000-0000-0000-000000000001', '{}', '[]', '[]', '[]')$$,
-  '42501', null, 'API roles cannot ingest documents');
-
--- ── server paths ──
 reset role;
--- First sync: one dated checklist item (todo in the file).
-select public.ingest_document('e1000000-0000-0000-0000-000000000001',
-  jsonb_build_object('path', 'plan.md', 'kind', 'markdown', 'title', 'Plan', 'hash', repeat('e', 64), 'content', '- [ ] Draft 📅 2026-10-01',
-                     'stats', jsonb_build_object('total', 1)),
-  '[{"ord":0,"heading":null,"content":"Draft","line":1}]',
-  '[{"key":"1111111111111111","text":"Draft","status":"todo","section":null,"line":1,"indent":0}]',
-  '[{"key":"k1","title":"Draft","kind":"task","dueAt":"2026-10-01T16:59:00Z","ref":{"path":"plan.md","fileStatus":"todo"}}]');
-select is((select status from public.tasks where title = 'Draft'), 'todo', 'dated checklist items become tasks');
--- The owner finishes it in the hub; a re-sync with the file still saying todo keeps "done".
-update public.tasks set status = 'done' where title = 'Draft';
-select public.ingest_document('e1000000-0000-0000-0000-000000000001',
-  jsonb_build_object('path', 'plan.md', 'kind', 'markdown', 'title', 'Plan', 'hash', repeat('f', 64), 'content', '- [ ] Draft 📅 2026-10-02'),
-  '[]', '[{"key":"1111111111111111","text":"Draft","status":"todo","section":null,"line":1,"indent":0}]',
-  '[{"key":"k1","title":"Draft","kind":"task","dueAt":"2026-10-02T16:59:00Z","ref":{"path":"plan.md","fileStatus":"todo"}}]');
-select is((select status || ' ' || to_char(due_at at time zone 'UTC', 'MM-DD') from public.tasks where title = 'Draft'), 'done 10-02',
-  'hub-side status survives a re-sync while the date follows the file');
--- The file now marks it cut: that change wins.
-select public.ingest_document('e1000000-0000-0000-0000-000000000001',
-  jsonb_build_object('path', 'plan.md', 'kind', 'markdown', 'title', 'Plan', 'hash', repeat('f', 64), 'content', '- [CẮT] Draft 📅 2026-10-02'),
-  '[]', '[{"key":"1111111111111111","text":"Draft","status":"cut","section":null,"line":1,"indent":0}]',
-  '[{"key":"k1","title":"Draft","kind":"task","dueAt":"2026-10-02T16:59:00Z","ref":{"path":"plan.md","fileStatus":"cut"}}]');
-select is((select status from public.tasks where title = 'Draft'), 'cut', 'a status change made in the file is applied');
-select is((select count(*)::int from public.document_chunks where document_id = (select id from public.project_documents where path = 'plan.md')), 0,
-  're-ingesting replaces the search chunks');
-select public.ingest_document('e1000000-0000-0000-0000-000000000001',
-  jsonb_build_object('path', 'plan.md', 'kind', 'markdown', 'title', 'Plan', 'hash', repeat('f', 64), 'content', ''), '[]', '[]', '[]');
-select is((select count(*)::int from public.tasks where title = 'Draft'), 0, 'dated items removed from the file are removed from tasks');
+insert into public.project_members (project_id, user_id, role) values
+  ('e1000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-00000000000f', 'editor'),
+  ('e1000000-0000-0000-0000-000000000001', '90000000-0000-0000-0000-000000000009', 'viewer');
+insert into public.devices (id, user_id, name, secret_ciphertext) values ('e2000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000e', 'PC', 'v1.x');
+insert into public.documents (id, owner_id, device_id, project_id, path, title, ext, size_bytes, sha256, modified_at, visibility) values
+  ('e3000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-00000000000e', 'e2000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-000000000001',
+   'Crypto/report.md', 'Báo cáo tiến độ', 'md', 10, repeat('a', 64), now(), 'project'),
+  ('e3000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-00000000000e', 'e2000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-000000000001',
+   'Crypto/private.md', 'Ghi chú riêng', 'md', 10, repeat('b', 64), now(), 'private');
+insert into public.document_chunks (document_id, idx, content) values
+  ('e3000000-0000-0000-0000-000000000001', 0, 'Báo cáo tiến độ mã hóa AES và kiểm thử'),
+  ('e3000000-0000-0000-0000-000000000002', 0, 'Báo cáo riêng tư chỉ chủ sở hữu thấy');
 
-select public.refresh_project_stats('e1000000-0000-0000-0000-000000000001');
-select is((select array[items_total, items_done, items_cut] from public.projects where id = 'e1000000-0000-0000-0000-000000000001'),
-  array[4, 2, 1], 'stats refresh sums document totals and records a history point');
-delete from public.project_documents where id = 'e2000000-0000-0000-0000-000000000001';
-select is((select count(*)::int from public.tasks where id = 'e3000000-0000-0000-0000-000000000001'), 0,
-  'deleting a document removes its milestone tasks');
+-- ── editor ───────────────────────────────────────────────────────────────
+select tests.authenticate_as('f0000000-0000-0000-0000-00000000000f');
+select is((select count(*)::int from public.projects), 1, 'editor sees the project');
+select lives_ok($$update public.tasks set status = 'doing' where title = 'Chọn đề tài'$$, 'editor moves a task');
+select is((select status from public.tasks where title = 'Chọn đề tài'), 'doing', 'the move is stored');
+select lives_ok($$insert into public.milestones (project_id, title, due_on) values ('e1000000-0000-0000-0000-000000000001', 'Nộp proposal', current_date + 7)$$, 'editor adds a milestone');
+select lives_ok($$update public.tasks set assignee_id = '90000000-0000-0000-0000-000000000009' where title = 'Chọn đề tài'$$, 'editor assigns a member');
+select throws_ok($$update public.tasks set assignee_id = '80000000-0000-0000-0000-000000000008' where title = 'Chọn đề tài'$$,
+  '23514', null, 'non-members cannot be assigned');
+select results_eq($$with d as (delete from public.projects returning 1) select count(*)::int from d$$, $$values (0)$$, 'editors cannot delete the project');
+select throws_ok($$insert into public.project_members (project_id, user_id, role) values ('e1000000-0000-0000-0000-000000000001', '80000000-0000-0000-0000-000000000008', 'owner')$$,
+  '42501', null, 'members cannot add members directly');
+select is((select count(*)::int from public.documents), 1, 'editor sees only project-visible documents');
+
+-- ── viewer ───────────────────────────────────────────────────────────────
+select tests.authenticate_as('90000000-0000-0000-0000-000000000009');
+select is((select count(*)::int from public.tasks where project_id is not null), 1, 'viewer reads project tasks');
+-- Gina is the task's assignee: she may move her own task (see 045), but not rename it.
+select throws_ok($$update public.tasks set title = 'renamed' where title = 'Chọn đề tài'$$, '42501', null,
+  'viewer cannot change tasks beyond the progress of their own');
+select throws_ok($$insert into public.tasks (title, project_id) values ('sneaky', 'e1000000-0000-0000-0000-000000000001')$$, '42501', null, 'viewer cannot add tasks');
+select results_eq($$with u as (update public.milestones set done = true returning 1) select count(*)::int from u$$, $$values (0)$$, 'viewer cannot edit milestones');
+select is((select count(*)::int from public.search_documents('bao cao')), 1, 'accent-insensitive search finds the shared report only');
+select ok((select snippet from public.search_documents('bao cao')) like '%«%', 'search returns a highlighted snippet');
+
+-- ── outsider ─────────────────────────────────────────────────────────────
+select tests.authenticate_as('80000000-0000-0000-0000-000000000008');
+select is((select count(*)::int from public.projects), 0, 'outsiders see no project');
+select is((select count(*)::int from public.tasks), 0, 'outsiders see no project tasks');
+select is((select count(*)::int from public.document_chunks), 0, 'outsiders read no document text');
+select is((select count(*)::int from public.search_documents('bao cao')), 0, 'search returns nothing to outsiders');
+select results_eq($$with u as (update public.documents set visibility = 'project' returning 1) select count(*)::int from u$$, $$values (0)$$, 'outsiders cannot change visibility');
+
+-- ── owner sees everything, including private notes ───────────────────────
+select tests.authenticate_as('e0000000-0000-0000-0000-00000000000e');
+select is((select count(*)::int from public.search_documents('bao cao')), 2, 'owner finds her private and shared documents');
 
 select * from finish();
 rollback;

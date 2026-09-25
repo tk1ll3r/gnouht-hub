@@ -9,6 +9,41 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      activity: {
+        Row: {
+          actor_id: string | null
+          at: string
+          id: number
+          project_id: string
+          subject: string | null
+          verb: string
+        }
+        Insert: {
+          actor_id?: string | null
+          at?: string
+          id?: never
+          project_id: string
+          subject?: string | null
+          verb: string
+        }
+        Update: {
+          actor_id?: string | null
+          at?: string
+          id?: never
+          project_id?: string
+          subject?: string | null
+          verb?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "activity_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_nonces: {
         Row: {
           device_id: string
@@ -245,12 +280,10 @@ export type Database = {
           item_key: string
           line: number
           ord: number
-          project_id: string
           section: string | null
           status: string
           status_changed_at: string
           text: string
-          user_id: string
         }
         Insert: {
           document_id: string
@@ -260,12 +293,10 @@ export type Database = {
           item_key: string
           line: number
           ord: number
-          project_id: string
           section?: string | null
           status: string
           status_changed_at?: string
           text: string
-          user_id: string
         }
         Update: {
           document_id?: string
@@ -275,27 +306,18 @@ export type Database = {
           item_key?: string
           line?: number
           ord?: number
-          project_id?: string
           section?: string | null
           status?: string
           status_changed_at?: string
           text?: string
-          user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "checklist_items_document_id_user_id_fkey"
-            columns: ["document_id", "user_id"]
+            foreignKeyName: "checklist_items_document_id_fkey"
+            columns: ["document_id"]
             isOneToOne: false
-            referencedRelation: "project_documents"
-            referencedColumns: ["id", "user_id"]
-          },
-          {
-            foreignKeyName: "checklist_items_project_id_user_id_fkey"
-            columns: ["project_id", "user_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id", "user_id"]
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -490,53 +512,136 @@ export type Database = {
         Row: {
           content: string
           document_id: string
-          fts: unknown
           heading: string | null
-          id: number
+          idx: number
           line: number
-          ord: number
-          project_id: string
           terms: string | null
-          user_id: string
+          tsv: unknown
         }
         Insert: {
           content: string
           document_id: string
-          fts?: unknown
           heading?: string | null
-          id?: never
+          idx: number
           line?: number
-          ord: number
-          project_id: string
           terms?: string | null
-          user_id: string
+          tsv?: unknown
         }
         Update: {
           content?: string
           document_id?: string
-          fts?: unknown
           heading?: string | null
-          id?: never
+          idx?: number
           line?: number
-          ord?: number
-          project_id?: string
           terms?: string | null
-          user_id?: string
+          tsv?: unknown
         }
         Relationships: [
           {
-            foreignKeyName: "document_chunks_document_id_user_id_fkey"
-            columns: ["document_id", "user_id"]
+            foreignKeyName: "document_chunks_document_id_fkey"
+            columns: ["document_id"]
             isOneToOne: false
-            referencedRelation: "project_documents"
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      documents: {
+        Row: {
+          checklist: Json | null
+          device_id: string
+          error: string | null
+          excerpt: string | null
+          ext: string
+          id: string
+          indexed_at: string
+          kind: string
+          language: string | null
+          line_count: number
+          modified_at: string
+          outline: Json
+          owner_id: string
+          path: string
+          project_id: string | null
+          redactions: number
+          root_key: string
+          sha256: string
+          size_bytes: number
+          storage_path: string | null
+          summary: string | null
+          title: string
+          todos: Json
+          truncated: boolean
+          visibility: string
+        }
+        Insert: {
+          checklist?: Json | null
+          device_id: string
+          error?: string | null
+          excerpt?: string | null
+          ext: string
+          id?: string
+          indexed_at?: string
+          kind?: string
+          language?: string | null
+          line_count?: number
+          modified_at: string
+          outline?: Json
+          owner_id: string
+          path: string
+          project_id?: string | null
+          redactions?: number
+          root_key?: string
+          sha256: string
+          size_bytes: number
+          storage_path?: string | null
+          summary?: string | null
+          title: string
+          todos?: Json
+          truncated?: boolean
+          visibility?: string
+        }
+        Update: {
+          checklist?: Json | null
+          device_id?: string
+          error?: string | null
+          excerpt?: string | null
+          ext?: string
+          id?: string
+          indexed_at?: string
+          kind?: string
+          language?: string | null
+          line_count?: number
+          modified_at?: string
+          outline?: Json
+          owner_id?: string
+          path?: string
+          project_id?: string | null
+          redactions?: number
+          root_key?: string
+          sha256?: string
+          size_bytes?: number
+          storage_path?: string | null
+          summary?: string | null
+          title?: string
+          todos?: Json
+          truncated?: boolean
+          visibility?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_device_id_owner_id_fkey"
+            columns: ["device_id", "owner_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
             referencedColumns: ["id", "user_id"]
           },
           {
-            foreignKeyName: "document_chunks_project_id_user_id_fkey"
-            columns: ["project_id", "user_id"]
+            foreignKeyName: "documents_project_id_fkey"
+            columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
-            referencedColumns: ["id", "user_id"]
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -675,6 +780,7 @@ export type Database = {
       groups: {
         Row: {
           color: string
+          course_code: string | null
           created_at: string
           created_by: string | null
           description: string | null
@@ -684,6 +790,7 @@ export type Database = {
         }
         Insert: {
           color?: string
+          course_code?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -693,6 +800,7 @@ export type Database = {
         }
         Update: {
           color?: string
+          course_code?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -767,6 +875,56 @@ export type Database = {
         }
         Relationships: []
       }
+      milestones: {
+        Row: {
+          created_at: string
+          done: boolean
+          due_on: string
+          hard: boolean
+          id: string
+          project_id: string
+          source: string
+          source_key: string | null
+          source_ref: Json
+          starts_on: string | null
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          done?: boolean
+          due_on: string
+          hard?: boolean
+          id?: string
+          project_id: string
+          source?: string
+          source_key?: string | null
+          source_ref?: Json
+          starts_on?: string | null
+          title: string
+        }
+        Update: {
+          created_at?: string
+          done?: boolean
+          due_on?: string
+          hard?: boolean
+          id?: string
+          project_id?: string
+          source?: string
+          source_key?: string | null
+          source_ref?: Json
+          starts_on?: string | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "milestones_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           ai_consent_at: string | null
@@ -815,92 +973,77 @@ export type Database = {
         }
         Relationships: []
       }
-      project_documents: {
+      project_groups: {
         Row: {
-          content: string
-          content_hash: string
-          error: string | null
-          id: string
-          indexed_at: string
-          items_attention: number
-          items_cut: number
-          items_doing: number
-          items_done: number
-          items_total: number
-          kind: string
-          language: string | null
-          line_count: number
-          modified_at: string | null
-          outline: Json
-          path: string
+          created_at: string
+          default_role: string
+          group_id: string
+          linked_by: string | null
           project_id: string
-          redactions: number
-          reference_date: string | null
-          size_bytes: number
-          title: string
-          todos: Json
-          truncated: boolean
-          user_id: string
         }
         Insert: {
-          content?: string
-          content_hash: string
-          error?: string | null
-          id?: string
-          indexed_at?: string
-          items_attention?: number
-          items_cut?: number
-          items_doing?: number
-          items_done?: number
-          items_total?: number
-          kind: string
-          language?: string | null
-          line_count?: number
-          modified_at?: string | null
-          outline?: Json
-          path: string
+          created_at?: string
+          default_role?: string
+          group_id: string
+          linked_by?: string | null
           project_id: string
-          redactions?: number
-          reference_date?: string | null
-          size_bytes?: number
-          title: string
-          todos?: Json
-          truncated?: boolean
-          user_id: string
         }
         Update: {
-          content?: string
-          content_hash?: string
-          error?: string | null
-          id?: string
-          indexed_at?: string
-          items_attention?: number
-          items_cut?: number
-          items_doing?: number
-          items_done?: number
-          items_total?: number
-          kind?: string
-          language?: string | null
-          line_count?: number
-          modified_at?: string | null
-          outline?: Json
-          path?: string
+          created_at?: string
+          default_role?: string
+          group_id?: string
+          linked_by?: string | null
           project_id?: string
-          redactions?: number
-          reference_date?: string | null
-          size_bytes?: number
-          title?: string
-          todos?: Json
-          truncated?: boolean
-          user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "project_documents_project_id_user_id_fkey"
-            columns: ["project_id", "user_id"]
+            foreignKeyName: "project_groups_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_groups_project_id_fkey"
+            columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
-            referencedColumns: ["id", "user_id"]
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_members: {
+        Row: {
+          joined_at: string
+          project_id: string
+          role: string
+          shares_documents: boolean
+          user_id: string
+          via_group: string | null
+        }
+        Insert: {
+          joined_at?: string
+          project_id: string
+          role: string
+          shares_documents?: boolean
+          user_id: string
+          via_group?: string | null
+        }
+        Update: {
+          joined_at?: string
+          project_id?: string
+          role?: string
+          shares_documents?: boolean
+          user_id?: string
+          via_group?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_members_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -913,7 +1056,6 @@ export type Database = {
           done: number
           project_id: string
           total: number
-          user_id: string
         }
         Insert: {
           attention: number
@@ -923,7 +1065,6 @@ export type Database = {
           done: number
           project_id: string
           total: number
-          user_id: string
         }
         Update: {
           attention?: number
@@ -933,47 +1074,10 @@ export type Database = {
           done?: number
           project_id?: string
           total?: number
-          user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "project_progress_daily_project_id_user_id_fkey"
-            columns: ["project_id", "user_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id", "user_id"]
-          },
-        ]
-      }
-      project_shares: {
-        Row: {
-          created_at: string
-          group_id: string
-          project_id: string
-          shared_by: string
-        }
-        Insert: {
-          created_at?: string
-          group_id: string
-          project_id: string
-          shared_by?: string
-        }
-        Update: {
-          created_at?: string
-          group_id?: string
-          project_id?: string
-          shared_by?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "project_shares_group_id_fkey"
-            columns: ["group_id"]
-            isOneToOne: false
-            referencedRelation: "groups"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "project_shares_project_id_fkey"
+            foreignKeyName: "project_progress_daily_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -987,7 +1091,6 @@ export type Database = {
           course_id: string | null
           created_at: string
           description: string | null
-          device_id: string | null
           due_on: string | null
           folder_key: string | null
           folder_label: string | null
@@ -997,19 +1100,19 @@ export type Database = {
           items_doing: number
           items_done: number
           items_total: number
+          kind: string
           last_synced_at: string | null
           name: string
-          source: string
+          owner_id: string
+          slug: string
           status: string
           updated_at: string
-          user_id: string
         }
         Insert: {
           color?: string
           course_id?: string | null
           created_at?: string
           description?: string | null
-          device_id?: string | null
           due_on?: string | null
           folder_key?: string | null
           folder_label?: string | null
@@ -1019,19 +1122,19 @@ export type Database = {
           items_doing?: number
           items_done?: number
           items_total?: number
+          kind?: string
           last_synced_at?: string | null
           name: string
-          source?: string
+          owner_id?: string
+          slug: string
           status?: string
           updated_at?: string
-          user_id?: string
         }
         Update: {
           color?: string
           course_id?: string | null
           created_at?: string
           description?: string | null
-          device_id?: string | null
           due_on?: string | null
           folder_key?: string | null
           folder_label?: string | null
@@ -1041,27 +1144,21 @@ export type Database = {
           items_doing?: number
           items_done?: number
           items_total?: number
+          kind?: string
           last_synced_at?: string | null
           name?: string
-          source?: string
+          owner_id?: string
+          slug?: string
           status?: string
           updated_at?: string
-          user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "projects_course_id_user_id_fkey"
-            columns: ["course_id", "user_id"]
+            foreignKeyName: "projects_course_id_fkey"
+            columns: ["course_id"]
             isOneToOne: false
             referencedRelation: "courses"
-            referencedColumns: ["id", "user_id"]
-          },
-          {
-            foreignKeyName: "projects_device_id_user_id_fkey"
-            columns: ["device_id", "user_id"]
-            isOneToOne: false
-            referencedRelation: "devices"
-            referencedColumns: ["id", "user_id"]
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1198,15 +1295,16 @@ export type Database = {
       }
       tasks: {
         Row: {
+          assignee_id: string | null
           completed_at: string | null
           course_id: string | null
           created_at: string
-          document_id: string | null
           due_at: string | null
           estimate_hours: number | null
           id: string
           kind: string
           notes: string | null
+          permission: string
           progress: number
           project_id: string | null
           source: string
@@ -1218,15 +1316,16 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          assignee_id?: string | null
           completed_at?: string | null
           course_id?: string | null
           created_at?: string
-          document_id?: string | null
           due_at?: string | null
           estimate_hours?: number | null
           id?: string
           kind?: string
           notes?: string | null
+          permission?: string
           progress?: number
           project_id?: string | null
           source?: string
@@ -1238,15 +1337,16 @@ export type Database = {
           user_id?: string
         }
         Update: {
+          assignee_id?: string | null
           completed_at?: string | null
           course_id?: string | null
           created_at?: string
-          document_id?: string | null
           due_at?: string | null
           estimate_hours?: number | null
           id?: string
           kind?: string
           notes?: string | null
+          permission?: string
           progress?: number
           project_id?: string | null
           source?: string
@@ -1266,18 +1366,11 @@ export type Database = {
             referencedColumns: ["id", "user_id"]
           },
           {
-            foreignKeyName: "tasks_document_fk"
-            columns: ["document_id", "user_id"]
-            isOneToOne: false
-            referencedRelation: "project_documents"
-            referencedColumns: ["id", "user_id"]
-          },
-          {
-            foreignKeyName: "tasks_project_fk"
-            columns: ["project_id", "user_id"]
+            foreignKeyName: "tasks_project_id_fkey"
+            columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
-            referencedColumns: ["id", "user_id"]
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1346,6 +1439,10 @@ export type Database = {
     }
     Functions: {
       accept_group_invite: { Args: { p_invite: string }; Returns: string }
+      add_project_member: {
+        Args: { p_project: string; p_role?: string; p_user: string }
+        Returns: undefined
+      }
       cancel_ai_job: { Args: { p_job: string }; Returns: boolean }
       claim_ai_job: {
         Args: { p_device: string }
@@ -1371,7 +1468,12 @@ export type Database = {
         Returns: undefined
       }
       create_group: {
-        Args: { p_color?: string; p_description?: string; p_name: string }
+        Args: {
+          p_color?: string
+          p_course_code?: string
+          p_description?: string
+          p_name: string
+        }
         Returns: string
       }
       create_group_invite: {
@@ -1409,20 +1511,41 @@ export type Database = {
       ingest_document: {
         Args: {
           p_chunks: Json
-          p_deadlines: Json
+          p_device: string
           p_document: Json
           p_items: Json
+          p_milestones: Json
           p_project: string
+          p_root: string
         }
         Returns: string
+      }
+      link_group_project: {
+        Args: { p_group: string; p_project: string; p_role?: string }
+        Returns: undefined
       }
       mark_mfa_session: {
         Args: { p_session: string; p_user: string }
         Returns: boolean
       }
       prepare_account_deletion: { Args: { p_user: string }; Returns: undefined }
+      project_roster: {
+        Args: { p_project: string }
+        Returns: {
+          display_name: string
+          joined_at: string
+          role: string
+          shares_documents: boolean
+          user_id: string
+          via_group: string
+        }[]
+      }
       refresh_project_stats: { Args: { p_project: string }; Returns: undefined }
-      search_documents: {
+      remove_project_member: {
+        Args: { p_project: string; p_user: string }
+        Returns: undefined
+      }
+      search_chunks: {
         Args: {
           p_any?: boolean
           p_kinds?: string[]
@@ -1431,16 +1554,41 @@ export type Database = {
           p_query: string
         }
         Returns: {
-          chunk_id: number
           content: string
           document_id: string
           heading: string
+          idx: number
           line: number
           project_id: string
           rank: number
         }[]
       }
+      search_documents: {
+        Args: { p_limit?: number; p_project?: string; q: string }
+        Returns: {
+          document_id: string
+          ext: string
+          modified_at: string
+          path: string
+          project_id: string
+          rank: number
+          snippet: string
+          title: string
+        }[]
+      }
       session_status: { Args: never; Returns: string }
+      set_document_sharing: {
+        Args: { p_project: string; p_share: boolean }
+        Returns: number
+      }
+      set_project_member_role: {
+        Args: { p_project: string; p_role: string; p_user: string }
+        Returns: undefined
+      }
+      unlink_group_project: {
+        Args: { p_group: string; p_project: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
